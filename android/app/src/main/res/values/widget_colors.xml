@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Виджет в теме «Как в системе», светлый вариант; тёмный — values-night. -->
+<resources>
+    <color name="widget_bg">#F2FFFFFF</color>
+    <color name="widget_text">#212121</color>
+    <color name="widget_muted">#616161</color>
+    <color name="widget_accent">#00796B</color>
+</resources>

@@ -1,0 +1,332 @@
+package app.cashbook.ui
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import app.cashbook.data.CashDao
+import app.cashbook.data.CategoryKind
+import app.cashbook.data.CategorySum
+import app.cashbook.data.DaySum
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import kotlin.math.PI
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.sin
+
+private val RU = Locale("ru")
+
+/**
+ * Категориальная палитра (dataviz, светлая тема, слоты 1–6) — по порядку долей; «Другое» — серый.
+ * Долей не больше 6 (`fold`), так что у каждой своей статьи — свой цвет.
+ */
+private val SLICE_COLORS = listOf(
+    Color(0xFF2A78D6), Color(0xFFEB6834), Color(0xFF1BAF7A), Color(0xFFEDA100), Color(0xFFE87BA4), Color(0xFF008300),
+)
+private val OTHER_COLOR = Color(0xFF9E9E9E)
+
+private fun monthTitle(m: YearMonth, pattern: String) =
+    m.format(DateTimeFormatter.ofPattern(pattern, RU)).replaceFirstChar { it.titlecase(RU) }
+
+/** Графики: круг по статьям за месяц и столбики расходов/доходов за 12 месяцев. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
+    var monthText by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
+    var code by rememberSaveable { mutableStateOf<String?>(null) }
+    var expense by rememberSaveable { mutableStateOf(true) }
+    var parent by rememberSaveable { mutableStateOf<Long?>(null) }
+    val month = YearMonth.parse(monthText)
+
+    val currencies by remember { dao.currencies() }.collectAsState(initial = emptyList())
+    val categories by remember { dao.allCategories() }.collectAsState(initial = emptyList())
+    // Данные помнят свой месяц: при листании чужой месяц не показывается ни кадра.
+    val sums by produceState<Pair<YearMonth, List<CategorySum>>?>(null, month) {
+        dao.categorySums(month.atDay(1).toEpochDay(), month.atEndOfMonth().toEpochDay()).collect { value = month to it }
+    }
+    val days by produceState<Pair<YearMonth, List<DaySum>>?>(null, month) {
+        dao.daySums(month.minusMonths(11).atDay(1).toEpochDay(), month.atEndOfMonth().toEpochDay()).collect { value = month to it }
+    }
+
+    BackHandler(enabled = parent != null) { parent = null }
+
+    val cur = code ?: currencies.firstOrNull { it.code == "UAH" }?.code ?: currencies.firstOrNull()?.code
+    val precision = currencies.firstOrNull { it.code == cur }?.precision ?: 2
+    fun money(v: Long) = "${fmt(v, precision)} ${symbol(cur.orEmpty())}"
+    val kind = if (expense) CategoryKind.EXPENSE else CategoryKind.INCOME
+    val monthSums = sums?.takeIf { it.first == month }?.second
+    val all = if (monthSums == null || cur == null) emptyList() else slices(categories, monthSums, kind, cur, parent)
+    val pie = fold(all)
+    val total = all.sumOf { it.amount }
+    // Сколько строк легенды имеют свой цвет: при свёртке в «Другое» остальные — серые.
+    val colored = if (pie.lastOrNull()?.id == null) pie.size - 1 else pie.size
+    val bars = days?.takeIf { it.first == month }?.second?.let { if (cur == null) null else monthly(it, month, cur) }
+
+    fun colorOf(index: Int, s: Slice) = if (s.id == null || index >= SLICE_COLORS.size) OTHER_COLOR else SLICE_COLORS[index]
+    fun open(s: Slice) {
+        if (s.hasChildren) parent = s.id
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                title = { Text("Графики") },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
+            // Фильтры — одной полосой над графиками.
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { monthText = month.minusMonths(1).toString(); parent = null }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Предыдущий месяц")
+                }
+                Text(
+                    monthTitle(month, "LLLL yyyy"), style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f), textAlign = TextAlign.Center,
+                )
+                IconButton(onClick = { monthText = month.plusMonths(1).toString(); parent = null }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Следующий месяц")
+                }
+            }
+            // Узкий экран — полоса фильтров прокручивается, чипы не переносятся.
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(selected = expense, onClick = { expense = true; parent = null }, label = { Text("Расходы") })
+                FilterChip(selected = !expense, onClick = { expense = false; parent = null }, label = { Text("Доходы") })
+                Spacer(Modifier.width(8.dp))
+                for (c in currencies) {
+                    FilterChip(selected = c.code == cur, onClick = { code = c.code; parent = null }, label = { Text(c.code) })
+                }
+            }
+
+            // Круг.
+            Row(
+                Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (parent != null) {
+                    TextButton(onClick = { parent = null }) { Text("‹ Все статьи") }
+                    Text(
+                        categories.firstOrNull { it.id == parent }?.name.orEmpty(),
+                        style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Text(
+                        (if (expense) "Расходы" else "Доходы") + " за " + monthTitle(month, "LLLL").lowercase(RU),
+                        style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 12.dp).weight(1f),
+                    )
+                }
+                Text(money(total), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+            // «Нет данных» — только когда загружены и суммы, и справочники (иначе мигает при открытии).
+            if (monthSums != null && cur != null && categories.isNotEmpty() && all.isEmpty()) {
+                Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) { Text("Нет данных") }
+            } else if (pie.isNotEmpty()) {
+                Pie(
+                    pie, total, ::colorOf, onTap = ::open,
+                    modifier = Modifier.padding(16.dp).size(220.dp).align(Alignment.CenterHorizontally),
+                )
+                // Легенда-список: все статьи с суммой и долей.
+                for ((i, s) in all.withIndex()) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable(enabled = s.hasChildren) { open(s) }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(12.dp).clip(RoundedCornerShape(3.dp)).background(if (i < colored) colorOf(i, s) else OTHER_COLOR))
+                        Text(
+                            s.name + if (s.hasChildren) " ›" else "",
+                            modifier = Modifier.padding(start = 12.dp).weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(money(s.amount), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${percent(s.amount, total)}%", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End,
+                            modifier = Modifier.padding(start = 8.dp).widthIn(min = 44.dp),
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+            // Столбики за 12 месяцев.
+            Text("По месяцам", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                LegendSwatch(ExpenseColor, "Расходы")
+                Spacer(Modifier.width(16.dp))
+                LegendSwatch(IncomeColor, "Доходы")
+            }
+            if (bars != null) {
+                if (bars.all { it.expense == 0L && it.income == 0L }) {
+                    Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) { Text("Нет данных") }
+                } else {
+                    Bars(
+                        bars, month, onMonth = { monthText = it.toString(); parent = null },
+                        modifier = Modifier.fillMaxWidth().height(160.dp).padding(horizontal = 8.dp),
+                    )
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                        for (b in bars) {
+                            Text(
+                                monthTitle(b.month, "LLL").trimEnd('.').take(3),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (b.month == month) FontWeight.Bold else FontWeight.Normal,
+                                textAlign = TextAlign.Center, maxLines = 1,
+                                modifier = Modifier.weight(1f).clickable { monthText = b.month.toString(); parent = null }
+                                    .padding(vertical = 6.dp),
+                            )
+                        }
+                    }
+                    val sel = bars.last()
+                    Text(
+                        "${monthTitle(month, "LLLL yyyy")}: расходы ${money(sel.expense)} · доходы ${money(sel.income)}",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegendSwatch(color: Color, label: String) {
+    Box(Modifier.size(12.dp).clip(RoundedCornerShape(3.dp)).background(color))
+    Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 6.dp))
+}
+
+/** Круг долей с зазором цвета фона между секторами; нажатие на сектор — [onTap]. */
+@Composable
+private fun Pie(pie: List<Slice>, total: Long, colorOf: (Int, Slice) -> Color, onTap: (Slice) -> Unit, modifier: Modifier) {
+    val surface = MaterialTheme.colorScheme.surface
+    // Углы — только для рисования (деньги в модели остаются Long).
+    val sweeps = pie.map { (it.amount.toDouble() / total * 360.0).toFloat() }
+    Canvas(
+        modifier.pointerInput(pie) {
+            detectTapGestures { p ->
+                val dx = p.x - size.width / 2f
+                val dy = p.y - size.height / 2f
+                if (hypot(dx, dy) > size.width / 2f) return@detectTapGestures
+                var angle = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat() + 90f // 0° — сверху, по часовой
+                if (angle < 0) angle += 360f
+                // Последняя доля — остаток до 360°: округление углов не теряет нажатие у шва.
+                var acc = 0f
+                val hit = pie.withIndex().firstOrNull { (i, _) -> acc += sweeps[i]; angle <= acc }?.value ?: pie.last()
+                onTap(hit)
+            }
+        },
+    ) {
+        val r = size.minDimension / 2f
+        val c = Offset(size.width / 2f, size.height / 2f)
+        var start = -90f
+        for ((i, s) in pie.withIndex()) {
+            drawArc(colorOf(i, s), start, sweeps[i], useCenter = true, topLeft = c - Offset(r, r), size = Size(2 * r, 2 * r))
+            start += sweeps[i]
+        }
+        if (pie.size > 1) {
+            start = -90f
+            for (sw in sweeps) {
+                val a = start * PI / 180.0
+                drawLine(surface, c, c + Offset((r * cos(a)).toFloat(), (r * sin(a)).toFloat()), strokeWidth = 2.dp.toPx())
+                start += sw
+            }
+        }
+    }
+}
+
+/** Пары столбиков расходы/доходы; выбранный месяц ярче; нажатие — [onMonth]. */
+@Composable
+private fun Bars(bars: List<MonthBar>, selected: YearMonth, onMonth: (YearMonth) -> Unit, modifier: Modifier) {
+    val axis = MaterialTheme.colorScheme.outlineVariant
+    val surface = MaterialTheme.colorScheme.surface
+    val max = bars.maxOf { maxOf(it.expense, it.income) }.coerceAtLeast(1L)
+    Canvas(
+        modifier.pointerInput(bars) {
+            detectTapGestures { p ->
+                val i = (p.x / (size.width / bars.size)).toInt().coerceIn(0, bars.lastIndex)
+                onMonth(bars[i].month)
+            }
+        },
+    ) {
+        val group = size.width / bars.size
+        val barW = group * 0.32f
+        val gap = 2.dp.toPx()
+        val radius = 4.dp.toPx()
+        val h = size.height
+        for ((i, b) in bars.withIndex()) {
+            // Невыбранный месяц бледнее: непрозрачный цвет, смешанный с фоном (прозрачность
+            // дала бы тёмную полосу там, где квадратный низ ложится на скруглённый столбик).
+            val fade = if (b.month == selected) 1f else 0.45f
+            val x0 = i * group + (group - 2 * barW - gap) / 2f
+            for ((j, pair) in listOf(b.expense to ExpenseColor, b.income to IncomeColor).withIndex()) {
+                val (v, color) = pair
+                if (v <= 0) continue
+                // Высота — только для рисования; минимум 2dp, чтобы малое значение было видно.
+                val bh = (v.toDouble() / max * h).toFloat().coerceAtLeast(2.dp.toPx())
+                val x = x0 + j * (barW + gap)
+                val fill = lerp(surface, color, fade)
+                drawRoundRect(fill, Offset(x, h - bh), Size(barW, bh), CornerRadius(radius, radius))
+                if (bh > radius) drawRect(fill, Offset(x, h - radius), Size(barW, radius)) // низ без скругления
+            }
+        }
+        drawLine(axis, Offset(0f, h), Offset(size.width, h), strokeWidth = 1.dp.toPx())
+    }
+}

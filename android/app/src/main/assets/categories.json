@@ -1,0 +1,157 @@
+{
+ "income": [
+  {
+   "name": "Зарплата",
+   "children": []
+  },
+  {
+   "name": "Подработка",
+   "children": []
+  },
+  {
+   "name": "Подарки",
+   "children": []
+  },
+  {
+   "name": "Проценты",
+   "children": []
+  },
+  {
+   "name": "Прочие доходы",
+   "children": []
+  }
+ ],
+ "expense": [
+  {
+   "name": "Продукты",
+   "children": [
+    {
+     "name": "Хлебобулочные изделия",
+     "children": [
+      {
+       "name": "Хлеб",
+       "children": []
+      },
+      {
+       "name": "Булки",
+       "children": []
+      }
+     ]
+    },
+    {
+     "name": "Молочные продукты",
+     "children": []
+    },
+    {
+     "name": "Мясо и рыба",
+     "children": []
+    },
+    {
+     "name": "Овощи и фрукты",
+     "children": []
+    },
+    {
+     "name": "Напитки",
+     "children": []
+    }
+   ]
+  },
+  {
+   "name": "Кафе и рестораны",
+   "children": []
+  },
+  {
+   "name": "Транспорт",
+   "children": [
+    {
+     "name": "Общественный транспорт",
+     "children": []
+    },
+    {
+     "name": "Такси",
+     "children": []
+    },
+    {
+     "name": "Топливо",
+     "children": []
+    }
+   ]
+  },
+  {
+   "name": "Жильё",
+   "children": [
+    {
+     "name": "Аренда",
+     "children": []
+    },
+    {
+     "name": "Коммунальные услуги",
+     "children": []
+    },
+    {
+     "name": "Интернет и связь",
+     "children": []
+    },
+    {
+     "name": "Ремонт",
+     "children": []
+    }
+   ]
+  },
+  {
+   "name": "Здоровье",
+   "children": [
+    {
+     "name": "Аптека",
+     "children": []
+    },
+    {
+     "name": "Врачи",
+     "children": []
+    }
+   ]
+  },
+  {
+   "name": "Одежда и обувь",
+   "children": []
+  },
+  {
+   "name": "Покупки",
+   "children": [
+    {
+     "name": "Техника",
+     "children": []
+    },
+    {
+     "name": "Для дома",
+     "children": []
+    }
+   ]
+  },
+  {
+   "name": "Развлечения",
+   "children": [
+    {
+     "name": "Кино и мероприятия",
+     "children": []
+    },
+    {
+     "name": "Подписки",
+     "children": []
+    }
+   ]
+  },
+  {
+   "name": "Подарки",
+   "children": []
+  },
+  {
+   "name": "Образование",
+   "children": []
+  },
+  {
+   "name": "Прочие расходы",
+   "children": []
+  }
+ ]
+}

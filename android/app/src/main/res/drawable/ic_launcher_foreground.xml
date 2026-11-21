@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Кошелёк в безопасной зоне адаптивной иконки (66 из 108 dp по центру). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- клапан -->
+    <path
+        android:fillColor="#B2DFDB"
+        android:pathData="M33,40 L65,29 A4,4 0 0 1 70,31.5 L73,40 Z" />
+    <!-- корпус -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,38 H76 A6,6 0 0 1 82,44 V72 A6,6 0 0 1 76,78 H32 A6,6 0 0 1 26,72 V44 A6,6 0 0 1 32,38 Z" />
+    <!-- застёжка -->
+    <path
+        android:fillColor="#00796B"
+        android:pathData="M64,51 H82 V65 H64 A7,7 0 0 1 64,51 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M66,58 m-3,0 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0" />
+</vector>

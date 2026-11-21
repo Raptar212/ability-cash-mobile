@@ -1,0 +1,291 @@
+package app.cashbook
+
+import android.graphics.Color
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import app.cashbook.data.AppDatabase
+import app.cashbook.data.Backup
+import app.cashbook.ui.AccountEditScreen
+import app.cashbook.data.CategoryKind
+import app.cashbook.ui.ArchivedAccountsScreen
+import app.cashbook.ui.CashbookTheme
+import app.cashbook.ui.CategoriesScreen
+import app.cashbook.ui.ChartsScreen
+import app.cashbook.ui.CoinKeeperCsv
+import app.cashbook.ui.EditOperationScreen
+import app.cashbook.ui.HomeScreen
+import app.cashbook.ui.OperationScreen
+import app.cashbook.ui.OperationsScreen
+import app.cashbook.ui.Node
+import app.cashbook.ui.NodeKind
+import app.cashbook.ui.QuickExpenseScreen
+import app.cashbook.ui.WidgetSettingsScreen
+import app.cashbook.widget.BalanceWidget
+import app.cashbook.ui.decodeDrop
+import app.cashbook.ui.encodeDrop
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.time.LocalDate
+import java.time.YearMonth
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // Тема как в системе — значки статус-бара тёмные на светлой, светлые на тёмной.
+        val bars = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT)
+        enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+        super.onCreate(savedInstanceState)
+        val importFile = File(cacheDir, "import.db")
+        setContent {
+            CashbookTheme {
+                // Навигация состоянием (переживает поворот): форма счёта (0 — новый) или ввод операции.
+                var editing by rememberSaveable { mutableStateOf<Long?>(null) }
+                var drop by rememberSaveable { mutableStateOf<String?>(null) }
+                // Лента операций: месяц «2026-11» (null — лента закрыта) и правка операции по id.
+                // Месяц и прокрутка здесь, а не в ленте: возврат из правки — на то же место.
+                var listMonth by rememberSaveable { mutableStateOf<String?>(null) }
+                var editOp by rememberSaveable { mutableStateOf<Long?>(null) }
+                var charts by rememberSaveable { mutableStateOf(false) }
+                var widgetSettings by rememberSaveable { mutableStateOf(false) }
+                var categoriesKind by rememberSaveable { mutableStateOf<CategoryKind?>(null) } // экран «Статьи»
+                var archive by rememberSaveable { mutableStateOf(false) }
+                // «+» на виджете: id счёта — выбор статьи для нового расхода (только при запуске с виджета).
+                var quickAdd by rememberSaveable {
+                    mutableStateOf(
+                        intent.getLongExtra(BalanceWidget.EXTRA_ADD_ACCOUNT, 0L).takeIf { it > 0 && savedInstanceState == null },
+                    )
+                }
+                val listState = rememberLazyListState()
+                var confirmImport by rememberSaveable { mutableStateOf(false) }
+                var restoring by rememberSaveable { mutableStateOf(false) }
+                // dao берётся заново после восстановления: прежний экземпляр Room мог быть закрыт reset().
+                val dao = remember(restoring) { AppDatabase.get(this@MainActivity).dao() }
+                val scope = rememberCoroutineScope()
+                // «Расход 120 ₴ · Отменить» после записи новой операции: id и текст.
+                val snackbar = remember { SnackbarHostState() }
+                var undo by remember { mutableStateOf<Pair<Long, String>?>(null) }
+                LaunchedEffect(undo, dao) { // dao — новый после восстановления копии
+                    val (id, text) = undo ?: return@LaunchedEffect
+                    val result = snackbar.showSnackbar(text, actionLabel = "Отменить", duration = SnackbarDuration.Short)
+                    if (result == SnackbarResult.ActionPerformed) dao.operation(id)?.let { dao.deleteOperation(it) }
+                    undo = null
+                }
+
+                fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+
+                /** Работа с файлами — вне главного потока; ошибка — сообщение, не крэш. */
+                fun io(block: suspend () -> String?) = scope.launch {
+                    val message = try {
+                        withContext(Dispatchers.IO) { block() }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        "Ошибка: ${e.message}"
+                    }
+                    message?.let(::toast)
+                }
+
+                val exporter = rememberLauncherForActivityResult(
+                    ActivityResultContracts.CreateDocument("application/octet-stream"),
+                ) { uri ->
+                    if (uri != null) io {
+                        Backup.export(this, AppDatabase.get(this)) {
+                            contentResolver.openOutputStream(uri) ?: error("Не открыть файл для записи")
+                        }
+                        "Копия базы сохранена"
+                    }
+                }
+                val csvExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+                    if (uri != null) io {
+                        val ops = dao.allOperations()
+                        val csv = CoinKeeperCsv.write(ops, dao.allAccounts().first(), dao.currencies().first(), dao.allCategories().first())
+                        val out = contentResolver.openOutputStream(uri) ?: error("Не открыть файл для записи")
+                        out.use { it.write(csv.toByteArray(Charsets.UTF_8)) }
+                        "CSV сохранён: операций ${ops.size}"
+                    }
+                }
+                val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    if (uri != null) io {
+                        try {
+                            val input = contentResolver.openInputStream(uri) ?: error("Не открыть файл")
+                            input.use { Backup.receive(it, importFile) }
+                            val problem = Backup.check(importFile, Backup.identityHash(AppDatabase.get(this)))
+                            if (problem == null) confirmImport = true else Backup.discard(importFile)
+                            problem
+                        } catch (e: Exception) {
+                            Backup.discard(importFile) // копия данных не остаётся в кэше
+                            throw e
+                        }
+                    }
+                }
+
+                val accountId = editing
+                val operation = drop
+                val opId = editOp
+                val month = listMonth
+                when {
+                    restoring -> {
+                        // Экраны с базой ушли из композиции — их запросы остановлены; меняем файл.
+                        // Флаг не сбрасываем до пересоздания: старые экраны со старым dao не
+                        // всплывают. В новой Activity restore() найдёт, что файла уже нет, и
+                        // вернёт false — тогда показываем главный экран.
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Восстанавливаю копию…") }
+                        LaunchedEffect(Unit) {
+                            // null — файла импорта нет (восстановление уже прошло): просто вернуться.
+                            val outcome: String? = try {
+                                val done = withContext(Dispatchers.IO) { Backup.restore(this@MainActivity, importFile) }
+                                if (done) "Данные восстановлены из копии" else null
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                // move — последний шаг: при любой ошибке рабочая база не изменена.
+                                withContext(Dispatchers.IO) { Backup.discard(importFile) }
+                                "Не удалось восстановить: ${e.message}. Данные на телефоне не изменены"
+                            }
+                            if (outcome != null) {
+                                toast(outcome)
+                                recreate() // база могла быть закрыта — экраны откроют её заново
+                            } else {
+                                restoring = false
+                            }
+                        }
+                    }
+                    quickAdd != null -> {
+                        BackHandler { quickAdd = null }
+                        QuickExpenseScreen(
+                            dao,
+                            quickAdd!!,
+                            onPick = { account, category ->
+                                drop = encodeDrop(Node(NodeKind.ACCOUNT, account), Node(NodeKind.EXPENSE, category))
+                                quickAdd = null
+                            },
+                            onBack = { quickAdd = null },
+                        )
+                    }
+                    categoriesKind != null -> {
+                        BackHandler { categoriesKind = null }
+                        CategoriesScreen(dao, categoriesKind!!, onBack = { categoriesKind = null })
+                    }
+                    archive -> {
+                        BackHandler { archive = false }
+                        ArchivedAccountsScreen(dao, onBack = { archive = false })
+                    }
+                    widgetSettings -> {
+                        BackHandler { widgetSettings = false }
+                        WidgetSettingsScreen(dao, onBack = { widgetSettings = false })
+                    }
+                    accountId != null -> {
+                        BackHandler { editing = null }
+                        AccountEditScreen(dao, accountId, onDone = { editing = null })
+                    }
+                    operation != null -> {
+                        BackHandler { drop = null }
+                        val (from, to) = decodeDrop(operation)
+                        OperationScreen(dao, from, to, onDone = { drop = null }, onSaved = { id, text -> undo = id to text })
+                    }
+                    opId != null -> {
+                        BackHandler { editOp = null }
+                        EditOperationScreen(dao, opId, onDone = { editOp = null })
+                    }
+                    charts -> {
+                        BackHandler { charts = false }
+                        ChartsScreen(dao, onBack = { charts = false })
+                    }
+                    month != null -> {
+                        BackHandler { listMonth = null }
+                        OperationsScreen(
+                            dao,
+                            YearMonth.parse(month),
+                            listState,
+                            onMonth = { listMonth = it.toString() },
+                            onOpen = { editOp = it },
+                            onBack = { listMonth = null },
+                        )
+                    }
+                    else -> HomeScreen(
+                        dao,
+                        onAccount = { editing = it },
+                        onNewAccount = { editing = 0L },
+                        onDrop = { from, to -> drop = encodeDrop(from, to) },
+                        onExport = { exporter.launch("cashbook-${LocalDate.now()}.db") },
+                        onImport = { importer.launch(arrayOf("*/*")) },
+                        onCharts = { charts = true },
+                        onWidget = { widgetSettings = true },
+                        onCategories = { categoriesKind = it },
+                        onArchive = { archive = true },
+                        onExportCsv = { csvExporter.launch("coinkeeper-${LocalDate.now()}.csv") },
+                        onOperations = {
+                            listMonth = YearMonth.now().toString()
+                            listState.requestScrollToItem(0) // с главного — сверху; из правки — на прежнее место
+                        },
+                    )
+                }
+
+                Box(Modifier.fillMaxSize().navigationBarsPadding(), contentAlignment = Alignment.BottomCenter) {
+                    SnackbarHost(snackbar)
+                }
+
+                if (confirmImport) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            confirmImport = false
+                            Backup.discard(importFile)
+                        },
+                        title = { Text("Заменить данные?") },
+                        text = {
+                            Text(
+                                "Все счета и операции на телефоне заменятся данными из файла. " +
+                                    "Текущие данные сохранятся в резервную копию внутри приложения.",
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                confirmImport = false
+                                editing = null
+                                drop = null
+                                restoring = true
+                            }) { Text("Заменить") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                confirmImport = false
+                                Backup.discard(importFile) // копия финансовых данных не лежит в кэше
+                            }) { Text("Отмена") }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}

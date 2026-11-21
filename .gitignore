@@ -1,0 +1,11 @@
+# AbilityCash install and personal finance data — never commit
+*.cash
+*.exe
+*.dll
+uninstall.log
+CoinKeeper_export*.csv
+*.csv.bak
+
+# IDE
+.idea/
+*.bundle

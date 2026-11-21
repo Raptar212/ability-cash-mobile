@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Тема окна до первого кадра Compose: тот же фон, что у приложения, без мелькания. -->
+<resources>
+    <style name="Theme.Cashbook" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/app_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <color name="app_background">#FFFBFE</color>
+    <color name="icon_background">#00796B</color>
+</resources>
