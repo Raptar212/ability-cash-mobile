@@ -190,8 +190,9 @@ class MainActivity : ComponentActivity() {
                 val operation = drop
                 val opId = editOp
                 val month = listMonth
+                // Экран «Обновления» несохранённого ввода не держит — с него «Обновить» ставит сразу.
                 val home = !restoring && quickAdd == null && categoriesKind == null && !archive && !widgetSettings &&
-                    !updatesScreen && accountId == null && operation == null && opId == null && !charts && month == null
+                    accountId == null && operation == null && opId == null && !charts && month == null
                 SideEffect { onHome = home && !confirmImport && updateOutcome == null }
 
                 fun checkUpdates(manual: Boolean) = scope.launch {
@@ -326,7 +327,7 @@ class MainActivity : ComponentActivity() {
                         confirmButton = {
                             TextButton(onClick = {
                                 updateOutcome = null
-                                toast("Загружаю обновление…")
+                                if (SelfUpdate.canInstall(this@MainActivity)) toast("Загружаю обновление…")
                                 scope.launch { Updates.install(this@MainActivity, o.release) { onHome }?.let { updateOutcome = it } }
                             }) { Text("Обновить") }
                         },
