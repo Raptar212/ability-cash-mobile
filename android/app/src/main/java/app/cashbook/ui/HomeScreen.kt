@@ -124,6 +124,7 @@ fun HomeScreen(
     onWidget: () -> Unit,
     onCategories: (CategoryKind) -> Unit,
     onArchive: () -> Unit,
+    onUpdates: () -> Unit,
     onOperations: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -260,6 +261,7 @@ fun HomeScreen(
                             DropdownMenuItem(text = { Text("Статьи") }, onClick = { menu = false; onCategories(CategoryKind.EXPENSE) })
                             DropdownMenuItem(text = { Text("Архив счетов") }, onClick = { menu = false; onArchive() })
                             DropdownMenuItem(text = { Text("Виджет") }, onClick = { menu = false; onWidget() })
+                            DropdownMenuItem(text = { Text("Обновления") }, onClick = { menu = false; onUpdates() })
                         }
                     }
                     IconButton(onClick = onOperations) { Icon(Icons.AutoMirrored.Filled.List, "Операции") }

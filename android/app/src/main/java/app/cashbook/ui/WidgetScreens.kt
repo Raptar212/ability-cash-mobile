@@ -129,7 +129,7 @@ fun WidgetSettingsScreen(dao: CashDao, onBack: () -> Unit) {
 }
 
 @Composable
-private fun SwitchRow(title: String, hint: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(title: String, hint: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = hint?.let { { Text(it) } },
