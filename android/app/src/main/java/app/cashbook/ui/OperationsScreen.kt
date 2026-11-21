@@ -15,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,7 +47,17 @@ import java.util.Locale
 
 private val RU = Locale("ru")
 
-/** Лента операций месяца [month] по дням; нажатие на строку — [onOpen] с id операции. */
+/** Чьи операции в ленте: все, одного счёта или одной статьи (с подстатьями). */
+sealed interface OpsFilter {
+    data object All : OpsFilter
+    data class Account(val id: Long) : OpsFilter
+    data class Category(val id: Long) : OpsFilter
+}
+
+/**
+ * Лента операций месяца [month] по дням; нажатие на строку — [onOpen] с id операции.
+ * [filter] не All — в заголовке имя счёта/статьи, месяц строкой ниже; [onAdd]/[onEdit] — «+» и «✎» справа.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OperationsScreen(
@@ -55,12 +67,15 @@ fun OperationsScreen(
     onMonth: (YearMonth) -> Unit,
     onOpen: (Long) -> Unit,
     onBack: () -> Unit,
+    filter: OpsFilter = OpsFilter.All,
+    onAdd: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
 ) {
     // Список помнит свой месяц: до загрузки нового операции прошлого не показываются ни кадра.
     val loaded by produceState<Pair<YearMonth, List<Operation>>?>(null, month) {
         dao.operations(month.atDay(1).toEpochDay(), month.atEndOfMonth().toEpochDay()).collect { value = month to it }
     }
-    val ops = loaded?.takeIf { it.first == month }?.second
+    val monthOps = loaded?.takeIf { it.first == month }?.second
     val accounts by remember { dao.allAccounts() }.collectAsState(initial = emptyList())
     val currencies by remember { dao.currencies() }.collectAsState(initial = emptyList())
     val categories by remember { dao.allCategories() }.collectAsState(initial = emptyList())
@@ -70,6 +85,19 @@ fun OperationsScreen(
     val currencyOf = accounts.associate { a -> a.id to (currencyById[a.currencyId]?.code ?: "?") }
     val precisions = currencies.associate { it.code to it.precision }
     val catById = categories.associateBy { it.id }
+    // Пока статьи не загрузились, фильтр по статье не применить — ждём, как и операции.
+    val ops = if (filter is OpsFilter.Category && categories.isEmpty()) null else monthOps?.filter { op ->
+        when (filter) {
+            OpsFilter.All -> true
+            is OpsFilter.Account -> op.expenseAccountId == filter.id || op.incomeAccountId == filter.id
+            is OpsFilter.Category -> op.categoryId?.let { topCategory(catById, it) == filter.id } == true
+        }
+    }
+    val title = when (filter) {
+        OpsFilter.All -> null
+        is OpsFilter.Account -> accountById[filter.id]?.name ?: ""
+        is OpsFilter.Category -> catById[filter.id]?.name ?: ""
+    }
     val days = remember(ops, currencyOf) { byDay(ops.orEmpty(), currencyOf) }
 
     fun go(m: YearMonth) {
@@ -90,26 +118,42 @@ fun OperationsScreen(
 
     fun accountName(id: Long?) = id?.let { accountById[it]?.name } ?: "?"
 
+    @Composable
+    fun monthSwitcher(modifier: Modifier) {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { go(month.minusMonths(1)) }) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Предыдущий месяц")
+            }
+            Text(
+                month.format(DateTimeFormatter.ofPattern("LLLL yyyy", RU)).replaceFirstChar { it.titlecase(RU) },
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+            )
+            IconButton(onClick = { go(month.plusMonths(1)) }) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Следующий месяц")
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { go(month.minusMonths(1)) }) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Предыдущий месяц")
+            Column {
+                TopAppBar(
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                    title = {
+                        if (title == null) {
+                            monthSwitcher(Modifier)
+                        } else {
+                            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        Text(
-                            month.format(DateTimeFormatter.ofPattern("LLLL yyyy", RU)).replaceFirstChar { it.titlecase(RU) },
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                        )
-                        IconButton(onClick = { go(month.plusMonths(1)) }) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Следующий месяц")
-                        }
-                    }
-                },
-            )
+                    },
+                    actions = {
+                        onEdit?.let { IconButton(onClick = it) { Icon(Icons.Filled.Edit, "Изменить") } }
+                        onAdd?.let { IconButton(onClick = it) { Icon(Icons.Filled.Add, "Добавить операцию") } }
+                    },
+                )
+                if (title != null) Surface(tonalElevation = 3.dp) { monthSwitcher(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) }
+            }
         },
     ) { padding ->
         // До загрузки список не рисуем: пустой LazyColumn сбросил бы прокрутку при возврате из правки.

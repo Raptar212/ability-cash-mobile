@@ -24,7 +24,7 @@ class BalanceWidgetTest {
 
     @Test fun sameCurrencyAccountsAreSummed() {
         val c = widgetContent(WidgetSettings(), all, emptyMap(), precisions)
-        assertEquals("3 300,00 ₴ · 300,00 $", plain(c.totals)) // 1000 + 2300
+        assertEquals(listOf("3 300,00 ₴", "300,00 $"), plain(c.totals)?.lines()) // 1000 + 2300, валюта на строку
         assertNull(c.expenses)
         assertNull(c.accounts)
         assertEquals(1L, c.addAccountId) // счёт не выбран — первый
@@ -32,7 +32,7 @@ class BalanceWidgetTest {
 
     @Test fun precisionAndNegativePerCurrency() {
         val c = widgetContent(WidgetSettings(), listOf(acc(1, "UAH", "1000,5"), acc(3, "UAH", "-200"), acc(4, "JPY", "15", 0)), emptyMap(), precisions)
-        assertEquals("800,50 ₴ · 15 JPY", plain(c.totals))
+        assertEquals(listOf("800,50 ₴", "15 JPY"), plain(c.totals)?.lines())
     }
 
     @Test fun hiddenCurrenciesSelectedAccountsAndExpenses() {

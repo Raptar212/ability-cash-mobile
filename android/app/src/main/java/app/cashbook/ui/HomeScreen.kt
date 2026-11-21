@@ -115,6 +115,7 @@ private data class Dragging(val cell: Cell, val pos: Offset)
 fun HomeScreen(
     dao: CashDao,
     onAccount: (Long) -> Unit,
+    onExpenseCategory: (Long) -> Unit,
     onNewAccount: () -> Unit,
     onDrop: (Node, Node) -> Unit,
     onExport: () -> Unit,
@@ -193,7 +194,7 @@ fun HomeScreen(
     val haptic = LocalHapticFeedback.current
     LaunchedEffect(hover) { if (hover != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
 
-    // Тап по статье — операция со счётом последней такой операции (нет — первый счёт).
+    // Тап по статье дохода — операция со счётом последней такой операции (нет — первый счёт).
     val scope = rememberCoroutineScope()
     fun tapCategory(node: Node) = scope.launch {
         val expense = node.kind == NodeKind.EXPENSE
@@ -208,9 +209,10 @@ fun HomeScreen(
         val currentCell by rememberUpdatedState(cell) // сумма меняется — жест не перезапускается
         DisposableEffect(node) { onDispose { bounds.remove(node) } }
         // Перетаскивание — после долгого нажатия: обычное касание и свайп прокручивают ряды.
+        // Расход — только цель броска: сам не тащится.
         val base = Modifier
             .onGloballyPositioned { bounds[node] = it.boundsInRoot() }
-            .pointerInput(node) {
+            .then(if (node.kind == NodeKind.EXPENSE) Modifier else Modifier.pointerInput(node) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { p ->
                         bounds[node]?.let {
@@ -237,10 +239,14 @@ fun HomeScreen(
                         drag = null
                     },
                 )
-            }
+            })
         return base.clickable {
             if (!clickAllowed()) return@clickable
-            if (node.kind == NodeKind.ACCOUNT) onAccount(node.id) else tapCategory(node)
+            when (node.kind) {
+                NodeKind.ACCOUNT -> onAccount(node.id)
+                NodeKind.EXPENSE -> onExpenseCategory(node.id)
+                NodeKind.INCOME -> tapCategory(node)
+            }
         }
     }
 

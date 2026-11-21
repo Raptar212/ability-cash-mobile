@@ -73,14 +73,14 @@ fun widgetContent(
     precisions: Map<String, Int>,
 ): WidgetContent {
     // Нет сумм — «0»; суммы есть, но все валюты скрыты — «—», а не ложный ноль.
-    fun line(sums: Map<String, Long>) = sums.filterKeys { it !in s.hiddenCurrencies }
+    fun line(sums: Map<String, Long>, sep: String = " · ") = sums.filterKeys { it !in s.hiddenCurrencies }
         .map { (code, v) -> "${fmt(v, precisions[code] ?: 2)} ${symbol(code)}" }
         .ifEmpty { listOf(if (sums.isEmpty()) "0" else "—") }
-        .joinToString(" · ")
+        .joinToString(sep)
     val totals = balances.groupBy { it.currencyCode }.mapValues { (_, v) -> v.sumOf { it.balance } }
     val shown = if (s.accountIds.isEmpty()) balances else balances.filter { it.accountId in s.accountIds }
     return WidgetContent(
-        totals = line(totals).takeIf { s.showTotals },
+        totals = line(totals, sep = "\n").takeIf { s.showTotals }, // валюта на строку: в одну не влезают
         expenses = "Расходы за месяц: ${line(monthExpenses)}".takeIf { s.showExpenses },
         accounts = shown.joinToString("\n") { "${it.name}: ${fmt(it.balance, it.precision)} ${symbol(it.currencyCode)}" }
             .ifEmpty { "Счетов нет" }
