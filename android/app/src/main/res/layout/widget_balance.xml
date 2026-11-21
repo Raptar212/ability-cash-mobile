@@ -49,13 +49,10 @@
             <TextView
                 android:id="@+id/amounts"
                 android:layout_width="match_parent"
-                android:layout_height="28dp"
-                android:autoSizeMaxTextSize="20sp"
-                android:autoSizeMinTextSize="11sp"
-                android:autoSizeTextType="uniform"
-                android:maxLines="1"
+                android:layout_height="wrap_content"
                 android:text="…"
                 android:textColor="@color/widget_text"
+                android:textSize="18sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
@@ -77,8 +74,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:ellipsize="end"
-        android:maxLines="1"
         android:textColor="@color/widget_muted"
         android:textSize="13sp"
         android:visibility="gone" />

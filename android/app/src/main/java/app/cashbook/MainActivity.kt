@@ -47,6 +47,7 @@ import app.cashbook.ui.EditOperationScreen
 import app.cashbook.ui.HomeScreen
 import app.cashbook.ui.OperationScreen
 import app.cashbook.ui.OperationsScreen
+import app.cashbook.ui.OpsFilter
 import app.cashbook.ui.Node
 import app.cashbook.ui.NodeKind
 import app.cashbook.ui.QuickExpenseScreen
@@ -109,6 +110,9 @@ class MainActivity : ComponentActivity() {
                 // Месяц и прокрутка здесь, а не в ленте: возврат из правки — на то же место.
                 var listMonth by rememberSaveable { mutableStateOf<String?>(null) }
                 var editOp by rememberSaveable { mutableStateOf<Long?>(null) }
+                // Лента одного счёта / одной статьи расхода (тап по кружку); оба null — все операции.
+                var listAccount by rememberSaveable { mutableStateOf<Long?>(null) }
+                var listCategory by rememberSaveable { mutableStateOf<Long?>(null) }
                 var charts by rememberSaveable { mutableStateOf(false) }
                 var widgetSettings by rememberSaveable { mutableStateOf(false) }
                 var categoriesKind by rememberSaveable { mutableStateOf<CategoryKind?>(null) } // экран «Статьи»
@@ -278,19 +282,53 @@ class MainActivity : ComponentActivity() {
                         ChartsScreen(dao, onBack = { charts = false })
                     }
                     month != null -> {
-                        BackHandler { listMonth = null }
+                        fun close() {
+                            listMonth = null
+                            listAccount = null
+                            listCategory = null
+                        }
+                        BackHandler { close() }
+                        val acc = listAccount
+                        val cat = listCategory
                         OperationsScreen(
                             dao,
                             YearMonth.parse(month),
                             listState,
                             onMonth = { listMonth = it.toString() },
                             onOpen = { editOp = it },
-                            onBack = { listMonth = null },
+                            onBack = { close() },
+                            filter = when {
+                                acc != null -> OpsFilter.Account(acc)
+                                cat != null -> OpsFilter.Category(cat)
+                                else -> OpsFilter.All
+                            },
+                            // «+» на счёте — выбор статьи расхода, как с виджета.
+                            onAdd = when {
+                                acc != null -> { { quickAdd = acc } }
+                                // На статье — расход со счёта последнего расхода (нет — первый счёт).
+                                cat != null -> { {
+                                    scope.launch {
+                                        val from = dao.lastAccount(true) ?: dao.balances().first().firstOrNull()?.accountId
+                                        if (from != null) drop = encodeDrop(Node(NodeKind.ACCOUNT, from), Node(NodeKind.EXPENSE, cat))
+                                    }
+                                } }
+                                else -> null
+                            },
+                            onEdit = acc?.let { { editing = it } },
                         )
                     }
                     else -> HomeScreen(
                         dao,
-                        onAccount = { editing = it },
+                        onAccount = {
+                            listAccount = it
+                            listMonth = YearMonth.now().toString()
+                            listState.requestScrollToItem(0)
+                        },
+                        onExpenseCategory = {
+                            listCategory = it
+                            listMonth = YearMonth.now().toString()
+                            listState.requestScrollToItem(0)
+                        },
                         onNewAccount = { editing = 0L },
                         onDrop = { from, to -> drop = encodeDrop(from, to) },
                         // Свой выбор файла — не уход из приложения: обновление не ставится поверх него.
