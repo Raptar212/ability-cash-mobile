@@ -1,6 +1,8 @@
 package app.cashbook
 
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -23,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +50,11 @@ import app.cashbook.ui.OperationsScreen
 import app.cashbook.ui.Node
 import app.cashbook.ui.NodeKind
 import app.cashbook.ui.QuickExpenseScreen
+import app.cashbook.ui.UpdatesScreen
+import app.cashbook.update.InstallStatusReceiver
+import app.cashbook.update.Outcome
+import app.cashbook.update.SelfUpdate
+import app.cashbook.update.Updates
 import app.cashbook.ui.WidgetSettingsScreen
 import app.cashbook.widget.BalanceWidget
 import app.cashbook.ui.decodeDrop
@@ -61,6 +69,31 @@ import java.time.LocalDate
 import java.time.YearMonth
 
 class MainActivity : ComponentActivity() {
+    /** Открыт главный экран без диалогов — только отсюда обновление ставится молча (несохранённое не пропадёт). */
+    @Volatile private var onHome = false
+
+    override fun onResume() {
+        super.onResume()
+        SelfUpdate.onScreen = true
+        SelfUpdate.ownActivity = false // вернулись из своего выбора файла
+        InstallStatusReceiver.showConfirm(this) // окно «Обновить?», пришедшее, пока были в фоне
+    }
+
+    override fun onPause() {
+        SelfUpdate.onScreen = false
+        super.onPause()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        SelfUpdate.commitIfIdle(this, onHome)
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) SelfUpdate.commitIfIdle(this, onHome)
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Тема как в системе — значки статус-бара тёмные на светлой, светлые на тёмной.
         val bars = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT)
@@ -80,6 +113,9 @@ class MainActivity : ComponentActivity() {
                 var widgetSettings by rememberSaveable { mutableStateOf(false) }
                 var categoriesKind by rememberSaveable { mutableStateOf<CategoryKind?>(null) } // экран «Статьи»
                 var archive by rememberSaveable { mutableStateOf(false) }
+                var updatesScreen by rememberSaveable { mutableStateOf(false) }
+                var updateOutcome by remember { mutableStateOf<Outcome?>(null) } // диалог проверки/установки
+                var checking by remember { mutableStateOf(false) }
                 // «+» на виджете: id счёта — выбор статьи для нового расхода (только при запуске с виджета).
                 var quickAdd by rememberSaveable {
                     mutableStateOf(
@@ -154,6 +190,20 @@ class MainActivity : ComponentActivity() {
                 val operation = drop
                 val opId = editOp
                 val month = listMonth
+                val home = !restoring && quickAdd == null && categoriesKind == null && !archive && !widgetSettings &&
+                    !updatesScreen && accountId == null && operation == null && opId == null && !charts && month == null
+                SideEffect { onHome = home && !confirmImport && updateOutcome == null }
+
+                fun checkUpdates(manual: Boolean) = scope.launch {
+                    if (manual) checking = true
+                    try {
+                        Updates.check(this@MainActivity, manual) { onHome }?.let { updateOutcome = it }
+                    } finally {
+                        checking = false
+                    }
+                }
+                LaunchedEffect(Unit) { checkUpdates(manual = false) } // не чаще раза в день — решает Updates
+
                 when {
                     restoring -> {
                         // Экраны с базой ушли из композиции — их запросы остановлены; меняем файл.
@@ -201,6 +251,10 @@ class MainActivity : ComponentActivity() {
                         BackHandler { archive = false }
                         ArchivedAccountsScreen(dao, onBack = { archive = false })
                     }
+                    updatesScreen -> {
+                        BackHandler { updatesScreen = false }
+                        UpdatesScreen(checking, onCheck = { checkUpdates(manual = true) }, onBack = { updatesScreen = false })
+                    }
                     widgetSettings -> {
                         BackHandler { widgetSettings = false }
                         WidgetSettingsScreen(dao, onBack = { widgetSettings = false })
@@ -238,13 +292,15 @@ class MainActivity : ComponentActivity() {
                         onAccount = { editing = it },
                         onNewAccount = { editing = 0L },
                         onDrop = { from, to -> drop = encodeDrop(from, to) },
-                        onExport = { exporter.launch("cashbook-${LocalDate.now()}.db") },
-                        onImport = { importer.launch(arrayOf("*/*")) },
+                        // Свой выбор файла — не уход из приложения: обновление не ставится поверх него.
+                        onExport = { SelfUpdate.ownActivity = true; exporter.launch("cashbook-${LocalDate.now()}.db") },
+                        onImport = { SelfUpdate.ownActivity = true; importer.launch(arrayOf("*/*")) },
                         onCharts = { charts = true },
                         onWidget = { widgetSettings = true },
                         onCategories = { categoriesKind = it },
                         onArchive = { archive = true },
-                        onExportCsv = { csvExporter.launch("coinkeeper-${LocalDate.now()}.csv") },
+                        onUpdates = { updatesScreen = true },
+                        onExportCsv = { SelfUpdate.ownActivity = true; csvExporter.launch("coinkeeper-${LocalDate.now()}.csv") },
                         onOperations = {
                             listMonth = YearMonth.now().toString()
                             listState.requestScrollToItem(0) // с главного — сверху; из правки — на прежнее место
@@ -254,6 +310,56 @@ class MainActivity : ComponentActivity() {
 
                 Box(Modifier.fillMaxSize().navigationBarsPadding(), contentAlignment = Alignment.BottomCenter) {
                     SnackbarHost(snackbar)
+                }
+
+                when (val o = updateOutcome) {
+                    null -> Unit
+                    is Outcome.Available -> AlertDialog(
+                        onDismissRequest = { updateOutcome = null },
+                        title = { Text("Доступна версия ${o.release.version}") },
+                        text = {
+                            Text(
+                                "Установлена ${o.current}. «Обновить» скачает новую версию и установит её; приложение " +
+                                    "закроется на несколько секунд. Данные сохранятся.",
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                updateOutcome = null
+                                toast("Загружаю обновление…")
+                                scope.launch { Updates.install(this@MainActivity, o.release) { onHome }?.let { updateOutcome = it } }
+                            }) { Text("Обновить") }
+                        },
+                        dismissButton = { TextButton(onClick = { updateOutcome = null }) { Text("Позже") } },
+                    )
+                    is Outcome.NeedPermission -> AlertDialog(
+                        onDismissRequest = { updateOutcome = null },
+                        title = { Text("Нужно разрешение") },
+                        text = {
+                            Text(
+                                "Чтобы приложение само ставило свои обновления, включите для него «Установку " +
+                                    "неизвестных приложений» (один раз). Потом снова ☰ → «Обновления» → «Проверить сейчас».",
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                updateOutcome = null
+                                SelfUpdate.askPermission(this@MainActivity)
+                            }) { Text("Открыть настройки") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                updateOutcome = null
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(o.release.url)))
+                            }) { Text("Через браузер") }
+                        },
+                    )
+                    is Outcome.Message -> AlertDialog(
+                        onDismissRequest = { updateOutcome = null },
+                        title = { Text(o.title) },
+                        text = { Text(o.text) },
+                        confirmButton = { TextButton(onClick = { updateOutcome = null }) { Text("OK") } },
+                    )
                 }
 
                 if (confirmImport) {
