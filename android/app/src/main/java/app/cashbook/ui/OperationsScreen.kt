@@ -1,6 +1,9 @@
 package app.cashbook.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +39,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -123,6 +131,8 @@ fun OperationsScreen(
 
     fun accountName(id: Long?) = id?.let { accountById[it]?.name } ?: "?"
 
+    fun accountColor(id: Long?) = id?.let { accountById[it] }?.let { Color(accountArgb(it.id, it.color)) }
+
     @Composable
     fun monthSwitcher(modifier: Modifier) {
         Row(modifier, verticalAlignment = Alignment.CenterVertically) {
@@ -186,7 +196,7 @@ fun OperationsScreen(
                     }
                 }
                 items(day.operations, key = { it.id }) { op ->
-                    OperationRow(op, ::categoryLabel, ::accountName, ::money) { onOpen(op.id) }
+                    OperationRow(op, ::categoryLabel, ::accountName, ::accountColor, ::money) { onOpen(op.id) }
                     HorizontalDivider()
                 }
             }
@@ -199,18 +209,28 @@ private fun OperationRow(
     op: Operation,
     categoryLabel: (Long?) -> String,
     accountName: (Long?) -> String,
+    accountColor: (Long?) -> Color?,
     money: (Long?, Long?) -> String,
     onClick: () -> Unit,
 ) {
     val type = op.type
-    val title = if (type == OperationType.TRANSFER) {
-        "${accountName(op.expenseAccountId)} › ${accountName(op.incomeAccountId)}"
-    } else {
-        categoryLabel(op.categoryId)
+    // Имя счёта — его цветом: в статье сразу видно, с какого счёта трата.
+    fun AnnotatedString.Builder.account(id: Long?) {
+        val text = accountName(id)
+        accountColor(id)?.let { withStyle(SpanStyle(color = it)) { append(text) } } ?: append(text)
     }
-    val account = when (type) {
-        OperationType.EXPENSE -> accountName(op.expenseAccountId)
-        OperationType.INCOME -> accountName(op.incomeAccountId)
+    val title = if (type == OperationType.TRANSFER) {
+        buildAnnotatedString {
+            account(op.expenseAccountId)
+            append(" › ")
+            account(op.incomeAccountId)
+        }
+    } else {
+        AnnotatedString(categoryLabel(op.categoryId))
+    }
+    val accountId = when (type) {
+        OperationType.EXPENSE -> op.expenseAccountId
+        OperationType.INCOME -> op.incomeAccountId
         OperationType.TRANSFER -> null
     }
     val amount = when (type) {
@@ -234,12 +254,24 @@ private fun OperationRow(
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val sub = listOfNotNull(account, op.comment.ifBlank { null }).joinToString(" · ")
+            val sub = buildAnnotatedString {
+                if (type != OperationType.TRANSFER) account(accountId)
+                if (op.comment.isNotBlank()) {
+                    if (length > 0) append(" · ")
+                    append(op.comment)
+                }
+            }
             if (sub.isNotEmpty()) {
-                Text(
-                    sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.Top) {
+                    // Точка — рисунок, не символ: TalkBack не читает «чёрный круг» в каждой строке.
+                    accountColor(accountId)?.let { c ->
+                        Box(Modifier.padding(top = 4.dp, end = 6.dp).size(8.dp).background(c, CircleShape))
+                    }
+                    Text(
+                        sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
         // Не шире половины экрана: длинный обмен переносится, а не вытесняет название. Без веса —

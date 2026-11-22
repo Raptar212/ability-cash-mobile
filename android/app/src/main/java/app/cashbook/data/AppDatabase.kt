@@ -15,9 +15,12 @@ import org.json.JSONObject
 
 @Database(
     entities = [Currency::class, Account::class, Category::class, Operation::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)], // + operations.baseAmount
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2), // + operations.baseAmount
+        AutoMigration(from = 2, to = 3), // + accounts.color
+    ],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dao(): CashDao

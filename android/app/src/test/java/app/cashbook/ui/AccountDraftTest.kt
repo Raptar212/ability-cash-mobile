@@ -24,6 +24,18 @@ class AccountDraftTest {
         assertEquals("моно", a.comment)
     }
 
+    @Test fun colorIsKeptAndAutoColorDependsOnId() {
+        val red = ACCOUNT_COLORS[1]
+        assertEquals(red, ok(AccountDraft(name = "A", currencyId = 1, color = red).validate(currencies)).color)
+        assertEquals(null, ok(AccountDraft(name = "A", currencyId = 1).validate(currencies)).color)
+        assertEquals(red, accountArgb(id = 5, color = red)) // выбранный цвет важнее палитры
+        assertEquals(ACCOUNT_COLORS[1], accountArgb(id = 1, color = null))
+        assertEquals(ACCOUNT_COLORS[1], accountArgb(id = 1L + ACCOUNT_COLORS.size, color = null)) // по кругу
+        assertTrue(accountArgb(1, null) != accountArgb(2, null))
+        assertEquals(ACCOUNT_COLORS.size, ACCOUNT_COLOR_NAMES.size) // у каждого цвета есть имя для TalkBack
+        assertEquals(ACCOUNT_COLORS.size, ACCOUNT_COLORS.toSet().size)
+    }
+
     @Test fun blankBalanceIsZeroAndNegativeAllowed() {
         assertEquals(0L, ok(AccountDraft(name = "A", currencyId = 1, balance = "").validate(currencies)).startingBalance)
         assertEquals(Money.parse("-50"), ok(AccountDraft(name = "A", currencyId = 1, balance = "-50").validate(currencies)).startingBalance)

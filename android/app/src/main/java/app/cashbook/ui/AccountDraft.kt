@@ -11,6 +11,8 @@ data class AccountDraft(
     val currencyId: Long? = null,
     val balance: String = "0",
     val comment: String = "",
+    /** ARGB; null — не выбран (палитра по id). */
+    val color: Int? = null,
 ) {
     companion object {
         fun of(account: Account, precision: Int) = AccountDraft(
@@ -18,14 +20,15 @@ data class AccountDraft(
             currencyId = account.currencyId,
             balance = Money.format(account.startingBalance, precision),
             comment = account.comment,
+            color = account.color,
         )
     }
 }
 
 /** Черновик формы переживает поворот экрана и смерть процесса (Bundle). */
 val DraftSaver = listSaver<AccountDraft, Any?>(
-    save = { listOf(it.name, it.currencyId, it.balance, it.comment) },
-    restore = { AccountDraft(it[0] as String, it[1] as Long?, it[2] as String, it[3] as String) },
+    save = { listOf(it.name, it.currencyId, it.balance, it.comment, it.color) },
+    restore = { AccountDraft(it[0] as String, it[1] as Long?, it[2] as String, it[3] as String, it[4] as Int?) },
 )
 
 val ErrorsSaver = listSaver<Validated.Errors, String?>(
@@ -59,6 +62,6 @@ fun AccountDraft.validate(currencies: List<Currency>, existing: Account? = null)
     }
     val base = existing ?: Account(name = "", currencyId = currency!!.id)
     return Validated.Ok(
-        base.copy(name = name.trim(), currencyId = currency!!.id, startingBalance = amount, comment = comment.trim()),
+        base.copy(name = name.trim(), currencyId = currency!!.id, startingBalance = amount, comment = comment.trim(), color = color),
     )
 }

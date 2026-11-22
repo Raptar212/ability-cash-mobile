@@ -33,6 +33,8 @@ data class Account(
     val startingBalance: Long = 0,
     val comment: String = "",
     val archived: Boolean = false,
+    /** ARGB цвета в ленте; null — не выбран, цвет из палитры по id (`accountArgb`). */
+    val color: Int? = null,
 )
 
 /** Статья — дерево как в AbilityCash: верхний уровень `parentId = null`, вид — расход или доход. */
