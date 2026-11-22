@@ -5,7 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,9 +62,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalViewConfiguration
-import androidx.compose.ui.platform.ViewConfiguration
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -85,9 +82,6 @@ val ExpenseColor = Color(0xFF00796B)
 private fun onCircle(color: Color) = if (color == AccountColor) Color(0xFF3D2A00) else Color.White
 
 private val BubbleSize = 56.dp
-
-/** Задержка до перетаскивания кружка (мс); прокрутка без захвата — свайпом по заголовку секции. */
-private const val DRAG_DELAY_MS = 250L
 
 fun symbol(code: String) = when (code) {
     "UAH" -> "₴"
@@ -170,7 +164,7 @@ fun HomeScreen(
     // Перетаскивание: прямоугольники кружков в координатах корня → цель под пальцем.
     val bounds = remember { mutableStateMapOf<Node, Rect>() }
     var drag by remember { mutableStateOf<Dragging?>(null) }
-    // Конец перетаскивания (uptime): отпускание после долгого нажатия — не клик по кружку.
+    // Конец перетаскивания (uptime): отпускание после перетаскивания — не клик по кружку.
     var dragEndedAt by remember { mutableStateOf(0L) }
     fun clickAllowed() = drag == null && SystemClock.uptimeMillis() - dragEndedAt > 300
     var origin by remember { mutableStateOf(Offset.Zero) }
@@ -225,12 +219,13 @@ fun HomeScreen(
         val node = cell.node
         val currentCell by rememberUpdatedState(cell) // сумма меняется — жест не перезапускается
         DisposableEffect(node) { onDispose { bounds.remove(node) } }
-        // Перетаскивание — после долгого нажатия: обычное касание и свайп прокручивают ряды.
+        // Перетаскивание — сразу, как палец сдвинулся (без задержки); тап — открыть. Экран листается
+        // свайпом по заголовкам секций и по расходам: они не тащатся.
         // Расход — только цель броска: сам не тащится.
         val base = Modifier
             .onGloballyPositioned { bounds[node] = it.boundsInRoot() }
             .then(if (node.kind == NodeKind.EXPENSE) Modifier else Modifier.pointerInput(node) {
-                detectDragGesturesAfterLongPress(
+                detectDragGestures(
                     onDragStart = { p ->
                         bounds[node]?.let {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -306,19 +301,10 @@ fun HomeScreen(
                 visible = it.boundsInRoot()
             },
         ) {
-            // Кружок хватается через DRAG_DELAY_MS, а не через системные 400+ мс. Остальное из системы.
-            val system = LocalViewConfiguration.current
-            val quick = remember(system) {
-                object : ViewConfiguration by system {
-                    override val longPressTimeoutMillis = DRAG_DELAY_MS
-                }
-            }
-            CompositionLocalProvider(LocalViewConfiguration provides quick) {
-                Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
-                    Grid("Доходы", incomeCells, hover, onAdd = { newCategory = CategoryKind.INCOME }) { cellModifier(it) }
-                    Grid("Счета", accountCells, hover, onAdd = onNewAccount, addLabel = "Новый счёт") { cellModifier(it) }
-                    Grid("Расходы", expenseCells, hover, onAdd = { newCategory = CategoryKind.EXPENSE }) { cellModifier(it) }
-                }
+            Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
+                Grid("Доходы", incomeCells, hover, onAdd = { newCategory = CategoryKind.INCOME }) { cellModifier(it) }
+                Grid("Счета", accountCells, hover, onAdd = onNewAccount, addLabel = "Новый счёт") { cellModifier(it) }
+                Grid("Расходы", expenseCells, hover, onAdd = { newCategory = CategoryKind.EXPENSE }) { cellModifier(it) }
             }
             dragCell?.let { cell ->
                 Circle(
