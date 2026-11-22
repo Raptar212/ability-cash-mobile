@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -214,7 +216,7 @@ fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 LegendSwatch(ExpenseColor, "Расходы")
                 Spacer(Modifier.width(16.dp))
-                LegendSwatch(IncomeColor, "Доходы")
+                LegendSwatch(chartIncomeColor(), "Доходы")
             }
             if (bars != null) {
                 if (bars.all { it.expense == 0L && it.income == 0L }) {
@@ -231,8 +233,9 @@ fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = if (b.month == month) FontWeight.Bold else FontWeight.Normal,
                                 textAlign = TextAlign.Center, maxLines = 1,
+                                // Область нажатия 48dp по высоте, текст по центру.
                                 modifier = Modifier.weight(1f).clickable { monthText = b.month.toString(); parent = null }
-                                    .padding(vertical = 6.dp),
+                                    .heightIn(min = 48.dp).wrapContentHeight(),
                             )
                         }
                     }
@@ -297,6 +300,7 @@ private fun Pie(pie: List<Slice>, total: Long, colorOf: (Int, Slice) -> Color, o
 private fun Bars(bars: List<MonthBar>, selected: YearMonth, onMonth: (YearMonth) -> Unit, modifier: Modifier) {
     val axis = MaterialTheme.colorScheme.outlineVariant
     val surface = MaterialTheme.colorScheme.surface
+    val income = chartIncomeColor()
     val max = bars.maxOf { maxOf(it.expense, it.income) }.coerceAtLeast(1L)
     Canvas(
         modifier.pointerInput(bars) {
@@ -316,7 +320,7 @@ private fun Bars(bars: List<MonthBar>, selected: YearMonth, onMonth: (YearMonth)
             // дала бы тёмную полосу там, где квадратный низ ложится на скруглённый столбик).
             val fade = if (b.month == selected) 1f else 0.45f
             val x0 = i * group + (group - 2 * barW - gap) / 2f
-            for ((j, pair) in listOf(b.expense to ExpenseColor, b.income to IncomeColor).withIndex()) {
+            for ((j, pair) in listOf(b.expense to ExpenseColor, b.income to income).withIndex()) {
                 val (v, color) = pair
                 if (v <= 0) continue
                 // Высота — только для рисования; минимум 2dp, чтобы малое значение было видно.

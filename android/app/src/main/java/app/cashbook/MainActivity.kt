@@ -51,6 +51,7 @@ import app.cashbook.ui.OpsFilter
 import app.cashbook.ui.Node
 import app.cashbook.ui.NodeKind
 import app.cashbook.ui.QuickExpenseScreen
+import app.cashbook.ui.TransferTargetScreen
 import app.cashbook.ui.UpdatesScreen
 import app.cashbook.update.InstallStatusReceiver
 import app.cashbook.update.Outcome
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
                         intent.getLongExtra(BalanceWidget.EXTRA_ADD_ACCOUNT, 0L).takeIf { it > 0 && savedInstanceState == null },
                     )
                 }
+                var transferFrom by rememberSaveable { mutableStateOf<Long?>(null) } // «→» в ленте счёта: выбор получателя
                 val listState = rememberLazyListState()
                 var confirmImport by rememberSaveable { mutableStateOf(false) }
                 var restoring by rememberSaveable { mutableStateOf(false) }
@@ -195,7 +197,7 @@ class MainActivity : ComponentActivity() {
                 val opId = editOp
                 val month = listMonth
                 // Экран «Обновления» несохранённого ввода не держит — с него «Обновить» ставит сразу.
-                val home = !restoring && quickAdd == null && categoriesKind == null && !archive && !widgetSettings &&
+                val home = !restoring && quickAdd == null && transferFrom == null && categoriesKind == null && !archive && !widgetSettings &&
                     accountId == null && operation == null && opId == null && !charts && month == null
                 SideEffect { onHome = home && !confirmImport && updateOutcome == null }
 
@@ -246,6 +248,19 @@ class MainActivity : ComponentActivity() {
                                 quickAdd = null
                             },
                             onBack = { quickAdd = null },
+                        )
+                    }
+                    transferFrom != null -> {
+                        val fromId = transferFrom!!
+                        BackHandler { transferFrom = null }
+                        TransferTargetScreen(
+                            dao,
+                            fromId,
+                            onPick = { to ->
+                                drop = encodeDrop(Node(NodeKind.ACCOUNT, fromId), Node(NodeKind.ACCOUNT, to))
+                                transferFrom = null
+                            },
+                            onBack = { transferFrom = null },
                         )
                     }
                     categoriesKind != null -> {
@@ -315,6 +330,7 @@ class MainActivity : ComponentActivity() {
                                 else -> null
                             },
                             onEdit = acc?.let { { editing = it } },
+                            onTransfer = acc?.let { { transferFrom = it } },
                         )
                     }
                     else -> HomeScreen(

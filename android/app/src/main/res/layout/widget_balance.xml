@@ -3,6 +3,7 @@
     Фон — картинка bg, а не background корня: тема перекрашивает её цветом (setColorFilter).
     Ссылку на ресурс из кода (setBackgroundResource) часть лаунчеров ищет в своих ресурсах —
     «Не удалось загрузить виджет» (Blackview, Android 9).
+    Тема «Прозрачный» — копия widget_balance_shadow.xml с тенью текста: правки макета — в оба файла.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@android:id/background"
@@ -66,7 +67,7 @@
             android:gravity="center"
             android:text="+"
             android:textColor="#FFFFFF"
-            android:textSize="26sp" />
+            android:textSize="26dp" />
     </LinearLayout>
 
     <TextView
