@@ -75,7 +75,11 @@ class BalanceWidget : AppWidgetProvider() {
         }
 
         private fun views(context: Context, c: WidgetContent, theme: WidgetTheme) =
-            RemoteViews(context.packageName, R.layout.widget_balance).apply {
+            // «Прозрачный» — текст прямо на обоях: макет с тенью, иначе на светлых обоях не прочитать.
+            RemoteViews(
+                context.packageName,
+                if (theme == WidgetTheme.TRANSPARENT) R.layout.widget_balance_shadow else R.layout.widget_balance,
+            ).apply {
                 fun show(id: Int, text: String?) {
                     setViewVisibility(id, if (text == null) View.GONE else View.VISIBLE)
                     if (text != null) setTextViewText(id, text)

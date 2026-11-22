@@ -30,6 +30,10 @@ private val Dark = darkColorScheme(
 fun CashbookTheme(content: @Composable () -> Unit) =
     MaterialTheme(colorScheme = if (isSystemInDarkTheme()) Dark else Light, content = content)
 
+/** Столбики доходов: на тёмном фоне индиго светлее (#3F51B5 там даёт контраст ~2,6:1, нужно 3:1). */
+@Composable
+fun chartIncomeColor() = if (isSystemInDarkTheme()) Color(0xFF7986CB) else IncomeColor
+
 /** Цвет суммы дохода в ленте — зелёный, читаемый на светлом и тёмном фоне. */
 @Composable
 fun incomeColor() = if (isSystemInDarkTheme()) Color(0xFF81C784) else Color(0xFF2E7D32)

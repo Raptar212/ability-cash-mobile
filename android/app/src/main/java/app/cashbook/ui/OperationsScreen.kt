@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
@@ -33,6 +34,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.cashbook.data.CashDao
@@ -70,6 +74,7 @@ fun OperationsScreen(
     filter: OpsFilter = OpsFilter.All,
     onAdd: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
+    onTransfer: (() -> Unit)? = null,
 ) {
     // Список помнит свой месяц: до загрузки нового операции прошлого не показываются ни кадра.
     val loaded by produceState<Pair<YearMonth, List<Operation>>?>(null, month) {
@@ -149,6 +154,7 @@ fun OperationsScreen(
                     },
                     actions = {
                         onEdit?.let { IconButton(onClick = it) { Icon(Icons.Filled.Edit, "Изменить") } }
+                        onTransfer?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "Перевод на другой счёт") } }
                         onAdd?.let { IconButton(onClick = it) { Icon(Icons.Filled.Add, "Добавить операцию") } }
                     },
                 )
@@ -165,7 +171,8 @@ fun OperationsScreen(
         LazyColumn(Modifier.padding(padding).fillMaxSize(), state = listState) {
             for (day in days) {
                 item(key = "d${day.date}") {
-                    Surface(tonalElevation = 2.dp) {
+                    // Строка дня темнее строк операций — границы дней видны в длинном списке.
+                    Surface(color = MaterialTheme.colorScheme.secondaryContainer) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
                             Text(
                                 LocalDate.ofEpochDay(day.date).format(DateTimeFormatter.ofPattern("d MMMM, EEEE", RU)),
@@ -235,7 +242,12 @@ private fun OperationRow(
                 )
             }
         }
-        Text(amount, style = MaterialTheme.typography.titleMedium, color = color, maxLines = 1)
+        // Не шире половины экрана: длинный обмен переносится, а не вытесняет название. Без веса —
+        // название (weight) берёт всё, что сумма не заняла.
+        Text(
+            amount, style = MaterialTheme.typography.titleMedium, color = color, maxLines = 2, textAlign = TextAlign.End,
+            modifier = Modifier.widthIn(max = (LocalConfiguration.current.screenWidthDp / 2).dp),
+        )
     }
 }
 

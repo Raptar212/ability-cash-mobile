@@ -1,6 +1,7 @@
 package app.cashbook.ui
 
 import android.os.SystemClock
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,6 +38,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,7 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -58,6 +62,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -78,6 +85,9 @@ val ExpenseColor = Color(0xFF00796B)
 private fun onCircle(color: Color) = if (color == AccountColor) Color(0xFF3D2A00) else Color.White
 
 private val BubbleSize = 56.dp
+
+/** Задержка до перетаскивания кружка (мс); прокрутка без захвата — свайпом по заголовку секции. */
+private const val DRAG_DELAY_MS = 250L
 
 fun symbol(code: String) = when (code) {
     "UAH" -> "₴"
@@ -172,7 +182,9 @@ fun HomeScreen(
     val scroll = rememberScrollState()
 
     // Автопрокрутка: палец с кружком у верхнего/нижнего края видимой области — ряды едут.
-    val dragging = drag != null
+    // drag меняется каждый кадр — экран читает только производные (derivedStateOf), иначе
+    // при перетаскивании перерисовывался бы целиком.
+    val dragging by remember { derivedStateOf { drag != null } }
     LaunchedEffect(dragging) {
         while (dragging) {
             val y = drag?.pos?.y ?: break
@@ -187,10 +199,15 @@ fun HomeScreen(
     }
 
     // Цель под пальцем: кружок, на который бросок создаст операцию (подсвечивается).
-    val hover = drag?.let { d ->
-        val from = d.cell.node
-        bounds.entries.firstOrNull { (n, r) -> n != from && r.contains(d.pos) && visible.contains(d.pos) && dropType(from, n) != null }?.key
+    val hover by remember {
+        derivedStateOf {
+            drag?.let { d ->
+                val from = d.cell.node
+                bounds.entries.firstOrNull { (n, r) -> n != from && r.contains(d.pos) && visible.contains(d.pos) && dropType(from, n) != null }?.key
+            }
+        }
     }
+    val dragCell by remember { derivedStateOf { drag?.cell } }
     val haptic = LocalHapticFeedback.current
     LaunchedEffect(hover) { if (hover != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
 
@@ -240,7 +257,13 @@ fun HomeScreen(
                     },
                 )
             })
-        return base.clickable {
+        // Подпись действия для TalkBack: «Двойное нажатие — открыть операции счёта».
+        val action = when (node.kind) {
+            NodeKind.ACCOUNT -> "открыть операции счёта"
+            NodeKind.EXPENSE -> "открыть операции статьи"
+            NodeKind.INCOME -> "добавить доход"
+        }
+        return base.clickable(onClickLabel = action) {
             if (!clickAllowed()) return@clickable
             when (node.kind) {
                 NodeKind.ACCOUNT -> onAccount(node.id)
@@ -283,16 +306,26 @@ fun HomeScreen(
                 visible = it.boundsInRoot()
             },
         ) {
-            Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
-                Grid("Доходы", incomeCells, hover, onAdd = { newCategory = CategoryKind.INCOME }) { cellModifier(it) }
-                Grid("Счета", accountCells, hover, onAdd = onNewAccount, addLabel = "Новый счёт") { cellModifier(it) }
-                Grid("Расходы", expenseCells, hover, onAdd = { newCategory = CategoryKind.EXPENSE }) { cellModifier(it) }
+            // Кружок хватается через DRAG_DELAY_MS, а не через системные 400+ мс. Остальное из системы.
+            val system = LocalViewConfiguration.current
+            val quick = remember(system) {
+                object : ViewConfiguration by system {
+                    override val longPressTimeoutMillis = DRAG_DELAY_MS
+                }
             }
-            drag?.let { d ->
+            CompositionLocalProvider(LocalViewConfiguration provides quick) {
+                Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
+                    Grid("Доходы", incomeCells, hover, onAdd = { newCategory = CategoryKind.INCOME }) { cellModifier(it) }
+                    Grid("Счета", accountCells, hover, onAdd = onNewAccount, addLabel = "Новый счёт") { cellModifier(it) }
+                    Grid("Расходы", expenseCells, hover, onAdd = { newCategory = CategoryKind.EXPENSE }) { cellModifier(it) }
+                }
+            }
+            dragCell?.let { cell ->
                 Circle(
-                    d.cell,
-                    Modifier.offset {
-                        IntOffset((d.pos.x - origin.x - half).roundToInt(), (d.pos.y - origin.y - half).roundToInt())
+                    cell,
+                    Modifier.offset { // позиция читается при раскладке, без перекомпозиции
+                        val p = drag?.pos ?: return@offset IntOffset.Zero
+                        IntOffset((p.x - origin.x - half).roundToInt(), (p.y - origin.y - half).roundToInt())
                     },
                 )
             }
@@ -331,6 +364,8 @@ private fun Grid(
             IconButton(onClick = onAdd) { Icon(Icons.Filled.Add, addLabel) }
         }
     }
+    // Крупный системный шрифт — подпись в две строки (у всех, чтобы кружки ряда стояли ровно).
+    val labelLines = if (LocalDensity.current.fontScale > 1.3f) 2 else 1
     for (row in cells.chunked(4)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
             for (c in row) key(c.node) { // эффекты и bounds следуют за кружком, а не за позицией
@@ -340,8 +375,8 @@ private fun Grid(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(
-                            c.label, style = MaterialTheme.typography.labelMedium, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp),
+                            c.label, style = MaterialTheme.typography.labelMedium, maxLines = labelLines, minLines = labelLines,
+                            overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 4.dp),
                         )
                         Circle(c, Modifier.padding(4.dp), highlighted = c.node == hover)
                         Text(
@@ -364,15 +399,20 @@ private fun Grid(
 /** [highlighted] — цель под пальцем при перетаскивании: крупнее и с обводкой. */
 @Composable
 private fun Circle(cell: Cell, modifier: Modifier = Modifier, highlighted: Boolean = false) {
+    val scale by animateFloatAsState(if (highlighted) 1.18f else 1f, label = "drop-target")
     Box(
         modifier
-            .scale(if (highlighted) 1.18f else 1f)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
             .size(BubbleSize)
             .then(if (highlighted) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape) else Modifier)
             .clip(CircleShape)
             .background(cell.color),
         contentAlignment = Alignment.Center,
     ) {
-        Text(initials(cell.label), color = onCircle(cell.color), style = MaterialTheme.typography.titleMedium)
+        // Инициалы — картинка, TalkBack читает полное имя из подписи.
+        Text(
+            initials(cell.label), color = onCircle(cell.color), style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.clearAndSetSemantics {},
+        )
     }
 }

@@ -5,7 +5,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -77,6 +82,8 @@ private val KEYS = listOf("789÷", "456×", "123−", ",0⌫+")
 private const val FIELD_AMOUNT = 0
 private const val FIELD_RATE = 1
 private const val FIELD_SECOND = 2
+private val KEYPAD_MIN = 240.dp
+private val SAVE_HEIGHT = 68.dp // кнопка 52dp + отступы 8dp сверху и снизу
 
 /**
  * Ввод операции после перетаскивания [initialFrom] → [initialTo]; [editing] — правка существующей.
@@ -249,134 +256,141 @@ fun OperationScreen(
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).imePadding().fillMaxSize()) {
-            // Расход и доход: счёт меняется здесь (тап по статье берёт последний).
-            val side = when (type) {
-                OperationType.EXPENSE -> from.id
-                OperationType.INCOME -> to.id
-                OperationType.TRANSFER -> null
-            }
-            if (side != null && active.size > 1) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Box(Modifier.padding(start = 8.dp)) }
-                    items(active, key = { it.accountId }) { a ->
-                        FilterChip(
-                            selected = a.accountId == side,
-                            onClick = {
-                                if (a.accountId != side) {
-                                    // Другая валюта — курс и вторую сумму заново (эффект курса перезапустится
-                                    // по смене валюты); та же — оставить, иначе курс пропал бы без перезагрузки.
-                                    if (a.currencyCode != accounts[side]?.currencyCode) {
-                                        expr2 = ""
-                                        rateExpr = ""
-                                        rateFresh = true
-                                        field = FIELD_AMOUNT
-                                    }
-                                    switched = a.accountId
-                                    error = null
-                                }
-                            },
-                            label = { Text("${a.name} · ${fmt(a.balance, 0)} ${symbol(a.currencyCode)}") },
-                        )
+        BoxWithConstraints(Modifier.padding(padding).imePadding().fillMaxSize()) {
+            // Калькулятор не ниже KEYPAD_MIN: при крупном шрифте прокручивается верх, а не сжимаются клавиши.
+            // Клавиатура телефона открыта (комментарий) — калькулятора нет, верх до кнопки «Сохранить».
+            val topMax = if (commentFocused) maxHeight - SAVE_HEIGHT else (maxHeight - KEYPAD_MIN - SAVE_HEIGHT).coerceAtLeast(96.dp)
+            Column(Modifier.fillMaxSize()) {
+                Column(Modifier.heightIn(max = topMax).verticalScroll(rememberScrollState())) {
+                    // Расход и доход: счёт меняется здесь (тап по статье берёт последний).
+                    val side = when (type) {
+                        OperationType.EXPENSE -> from.id
+                        OperationType.INCOME -> to.id
+                        OperationType.TRANSFER -> null
                     }
-                }
-            }
-            val firstLabel = if (type == OperationType.INCOME) "Зачислить" else "Списать"
-            AmountLine(firstLabel.takeIf { two }, expr, amountAcc.currencyCode, amountAcc.precision, active = field == FIELD_AMOUNT) {
-                field = FIELD_AMOUNT
-                focus.clearFocus()
-            }
-            if (secondCode != null) {
-                val perFrom = if (manual) shownRate?.perFrom ?: ratePerFrom else ratePerFrom
-                RateLine(
-                    rateText,
-                    unit = if (perFrom) amountAcc.currencyCode else secondCode,
-                    other = if (perFrom) secondCode else amountAcc.currencyCode,
-                    active = field == FIELD_RATE,
-                    derived = manual,
-                ) {
-                    field = FIELD_RATE
-                    rateFresh = true
-                    focus.clearFocus()
-                }
-                val secondLabel = when (type) {
-                    OperationType.TRANSFER -> "Зачислить"
-                    OperationType.EXPENSE -> "Расход"
-                    OperationType.INCOME -> "Доход"
-                }
-                AmountLine(
-                    secondLabel, expr2, secondCode, secondPrecision, active = field == FIELD_SECOND,
-                    hint = received?.takeIf { !manual }?.let(::toExpr),
-                ) {
-                    field = FIELD_SECOND
-                    focus.clearFocus()
-                }
-            }
-            error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
-            }
-            if (subs.isNotEmpty()) {
-                LazyRow(
-                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    item { Box(Modifier.padding(start = 8.dp)) }
-                    items(subs, key = { it.first.id }) { (c, depth) ->
-                        FilterChip(
-                            selected = categoryId == c.id,
-                            onClick = { categoryId = if (categoryId == c.id) null else c.id },
-                            label = { Text((if (depth > 0) "· " else "") + c.name) },
-                        )
-                    }
-                }
-            }
-            OutlinedTextField(
-                value = comment,
-                onValueChange = { comment = it },
-                label = { Text("Комментарий") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).onFocusChanged { commentFocused = it.isFocused },
-            )
-            DateRow(date, onPick = { date = it }, onCalendar = { picking = true })
-            if (commentFocused) {
-                Spacer(Modifier.weight(1f))
-            } else {
-                Keypad(
-                    Modifier.weight(1f),
-                    onClear = {
-                        error = null
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        when {
-                            !two || field == FIELD_AMOUNT -> expr = ""
-                            field == FIELD_SECOND -> expr2 = ""
-                            else -> rateExpr = ""
+                    if (side != null && active.size > 1) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item { Box(Modifier.padding(start = 8.dp)) }
+                            items(active, key = { it.accountId }) { a ->
+                                FilterChip(
+                                    selected = a.accountId == side,
+                                    onClick = {
+                                        if (a.accountId != side) {
+                                            // Другая валюта — курс и вторую сумму заново (эффект курса перезапустится
+                                            // по смене валюты); та же — оставить, иначе курс пропал бы без перезагрузки.
+                                            if (a.currencyCode != accounts[side]?.currencyCode) {
+                                                expr2 = ""
+                                                rateExpr = ""
+                                                rateFresh = true
+                                                field = FIELD_AMOUNT
+                                            }
+                                            switched = a.accountId
+                                            error = null
+                                        }
+                                    },
+                                    label = { Text("${a.name} · ${fmt(a.balance, 0)} ${symbol(a.currencyCode)}") },
+                                )
+                            }
                         }
-                    },
-                ) { key ->
-                error = null
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                when {
-                    !two || field == FIELD_AMOUNT -> expr = Calc.press(expr, key)
-                    field == FIELD_SECOND -> expr2 = Calc.press(expr2, key)
-                    rateFresh || manual -> {
-                        // Курс вводится заново (⌫ — правит показанный); ручная вторая сумма сбрасывается.
-                        if (manual) shownRate?.let { ratePerFrom = it.perFrom }
-                        val start = if (key == '⌫') rateText.takeIf { it != "?" }.orEmpty() else ""
-                        expr2 = ""
-                        rateExpr = Calc.press(start, key)
-                        rateFresh = false
                     }
-                    else -> rateExpr = Calc.press(rateExpr, key)
+                    val firstLabel = if (type == OperationType.INCOME) "Зачислить" else "Списать"
+                    AmountLine(firstLabel.takeIf { two }, expr, amountAcc.currencyCode, amountAcc.precision, active = field == FIELD_AMOUNT) {
+                        field = FIELD_AMOUNT
+                        focus.clearFocus()
+                    }
+                    if (secondCode != null) {
+                        val perFrom = if (manual) shownRate?.perFrom ?: ratePerFrom else ratePerFrom
+                        RateLine(
+                            rateText,
+                            unit = if (perFrom) amountAcc.currencyCode else secondCode,
+                            other = if (perFrom) secondCode else amountAcc.currencyCode,
+                            active = field == FIELD_RATE,
+                            derived = manual,
+                        ) {
+                            field = FIELD_RATE
+                            rateFresh = true
+                            focus.clearFocus()
+                        }
+                        val secondLabel = when (type) {
+                            OperationType.TRANSFER -> "Зачислить"
+                            OperationType.EXPENSE -> "Расход"
+                            OperationType.INCOME -> "Доход"
+                        }
+                        AmountLine(
+                            secondLabel, expr2, secondCode, secondPrecision, active = field == FIELD_SECOND,
+                            hint = received?.takeIf { !manual }?.let(::toExpr),
+                        ) {
+                            field = FIELD_SECOND
+                            focus.clearFocus()
+                        }
+                    }
+                    error?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
+                    }
+                    if (subs.isNotEmpty()) {
+                        LazyRow(
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            item { Box(Modifier.padding(start = 8.dp)) }
+                            items(subs, key = { it.first.id }) { (c, depth) ->
+                                FilterChip(
+                                    selected = categoryId == c.id,
+                                    onClick = { categoryId = if (categoryId == c.id) null else c.id },
+                                    label = { Text((if (depth > 0) "· " else "") + c.name) },
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = comment,
+                        onValueChange = { comment = it },
+                        label = { Text("Комментарий") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).onFocusChanged { commentFocused = it.isFocused },
+                    )
+                    DateRow(date, onPick = { date = it }, onCalendar = { picking = true })
                 }
+                if (commentFocused) {
+                    Spacer(Modifier.weight(1f))
+                } else {
+                    Keypad(
+                        Modifier.weight(1f),
+                        onClear = {
+                            error = null
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            when {
+                                !two || field == FIELD_AMOUNT -> expr = ""
+                                field == FIELD_SECOND -> expr2 = ""
+                                else -> rateExpr = ""
+                            }
+                        },
+                    ) { key ->
+                    error = null
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    when {
+                        !two || field == FIELD_AMOUNT -> expr = Calc.press(expr, key)
+                        field == FIELD_SECOND -> expr2 = Calc.press(expr2, key)
+                        rateFresh || manual -> {
+                            // Курс вводится заново (⌫ — правит показанный); ручная вторая сумма сбрасывается.
+                            if (manual) shownRate?.let { ratePerFrom = it.perFrom }
+                            val start = if (key == '⌫') rateText.takeIf { it != "?" }.orEmpty() else ""
+                            expr2 = ""
+                            rateExpr = Calc.press(start, key)
+                            rateFresh = false
+                        }
+                        else -> rateExpr = Calc.press(rateExpr, key)
+                    }
+                    }
                 }
+                Button(
+                    onClick = ::save,
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(52.dp),
+                ) { Text(if (editing != null) "Сохранить изменения" else "Сохранить", style = MaterialTheme.typography.titleMedium) }
             }
-            Button(
-                onClick = ::save,
-                enabled = !saving,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(52.dp),
-            ) { Text(if (editing != null) "Сохранить изменения" else "Сохранить", style = MaterialTheme.typography.titleMedium) }
         }
     }
 
@@ -469,6 +483,7 @@ private fun AmountLine(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (label != null) Text(label, style = MaterialTheme.typography.labelLarge)
+            // Длинное выражение не обрезает конец: строка прокручивается и стоит на последних цифрах.
             Text(
                 expr.ifEmpty { hint ?: "0" },
                 color = if (expr.isEmpty() && hint != null) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified,
@@ -476,7 +491,8 @@ private fun AmountLine(
                 fontWeight = FontWeight.Light,
                 textAlign = TextAlign.End,
                 maxLines = 1,
-                modifier = Modifier.weight(1f),
+                softWrap = false,
+                modifier = Modifier.weight(1f).padding(start = 8.dp).horizontalScroll(rememberScrollState(), reverseScrolling = true),
             )
             Text(" ${symbol(code)}", fontSize = 24.sp)
         }

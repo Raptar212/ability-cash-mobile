@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -36,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.cashbook.data.CashDao
 import app.cashbook.data.CategoryKind
@@ -134,7 +136,8 @@ internal fun SwitchRow(title: String, hint: String?, checked: Boolean, onChange:
         headlineContent = { Text(title) },
         supportingContent = hint?.let { { Text(it) } },
         trailingContent = { Switch(checked = checked, onCheckedChange = null) },
-        modifier = Modifier.clickable { onChange(!checked) },
+        // Роль переключателя: TalkBack говорит «переключатель, включено/выключено».
+        modifier = Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
     )
 }
 
@@ -191,6 +194,50 @@ fun QuickExpenseScreen(dao: CashDao, accountId: Long, onPick: (account: Long, ca
                         Modifier.fillMaxWidth().clickable { onPick(selected.accountId, c.id) }.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) { Text(c.name, style = MaterialTheme.typography.bodyLarge) }
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Перевод без перетаскивания (TalkBack, моторика): лента счёта [fromId] → «Перевод» → счёт
+ * зачисления → окно суммы через [onPick].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TransferTargetScreen(dao: CashDao, fromId: Long, onPick: (to: Long) -> Unit, onBack: () -> Unit) {
+    val balances by remember { dao.balances() }.collectAsState(initial = null)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                title = { Text("Перевод на счёт") },
+            )
+        },
+    ) { padding ->
+        val accs = balances ?: return@Scaffold
+        val from = accs.find { it.accountId == fromId }
+        val targets = accs.filter { it.accountId != fromId }
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            from?.let {
+                Text("Со счёта «${it.name}»", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(16.dp, 8.dp))
+                HorizontalDivider()
+            }
+            if (from == null || targets.isEmpty()) {
+                Text("Нужен ещё один активный счёт", modifier = Modifier.padding(16.dp))
+                return@Column
+            }
+            LazyColumn {
+                items(targets, key = { it.accountId }) { b ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onPick(b.accountId) }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(b.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        Text("${fmt(b.balance, 0)} ${symbol(b.currencyCode)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     HorizontalDivider()
                 }
             }
