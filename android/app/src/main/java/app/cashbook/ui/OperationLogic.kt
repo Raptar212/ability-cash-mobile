@@ -9,6 +9,8 @@ import app.cashbook.data.OperationType
 import app.cashbook.data.type
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.text.Collator
+import java.util.Locale
 
 /** Кружок главного экрана: статья дохода, счёт или статья расхода. */
 enum class NodeKind { INCOME, ACCOUNT, EXPENSE }
@@ -151,12 +153,15 @@ fun byDay(ops: List<Operation>, currencyOf: Map<Long, String>): List<Day> =
         Day(date, list, expenses)
     }
 
-/** Потомки статьи в порядке дерева (родитель, затем его дети), с глубиной для отступа. */
+/** Статьи в списках выбора — по алфавиту (русская сортировка: «ё» рядом с «е», регистр не главный). */
+val ByName: Comparator<Category> = Collator.getInstance(Locale("ru")).let { collator -> compareBy(collator) { it.name } }
+
+/** Потомки статьи в порядке дерева (родитель, затем его дети), с глубиной для отступа; братья — по алфавиту. */
 fun descendants(categories: List<Category>, rootId: Long): List<Pair<Category, Int>> {
     val children = categories.groupBy { it.parentId }
     val out = mutableListOf<Pair<Category, Int>>()
     fun walk(id: Long, depth: Int) {
-        for (c in children[id].orEmpty().sortedBy { it.id }) {
+        for (c in children[id].orEmpty().sortedWith(ByName)) {
             out += c to depth
             walk(c.id, depth + 1)
         }

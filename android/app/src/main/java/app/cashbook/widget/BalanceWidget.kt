@@ -13,6 +13,7 @@ import app.cashbook.MainActivity
 import app.cashbook.R
 import app.cashbook.data.AppDatabase
 import app.cashbook.data.Backup
+import app.cashbook.ui.AccountOrder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -35,7 +36,7 @@ class BalanceWidget : AppWidgetProvider() {
                     .mapValues { it.value.sum() }
                 val precisions = dao.currencies().first().associate { it.code to it.precision }
                 val settings = WidgetSettings.load(context)
-                val views = views(context, widgetContent(settings, dao.balances().first(), expenses, precisions), settings.theme)
+                val views = views(context, widgetContent(settings, AccountOrder.sort(dao.balances().first(), AccountOrder.load(context)) { it.accountId }, expenses, precisions), settings.theme)
                 for (id in ids) manager.updateAppWidget(id, views)
             } catch (e: Exception) {
                 Log.w("BalanceWidget", "Не обновился, остаётся прежнее значение", e)

@@ -116,9 +116,9 @@ class OperationLogicTest {
         assertEquals(mapOf("UAH" to m("7")), r[27])
     }
 
-    @Test fun descendantsInTreeOrderWithDepth() {
+    @Test fun descendantsInTreeOrderWithDepthAlphabetical() {
         assertEquals(
-            listOf("Хлебобулочные" to 0, "Хлеб" to 1, "Молочка" to 0),
+            listOf("Молочка" to 0, "Хлебобулочные" to 0, "Хлеб" to 1),
             descendants(tree, 13).map { (c, d) -> c.name to d },
         )
         assertEquals(emptyList<Pair<Category, Int>>(), descendants(tree, 27))

@@ -9,10 +9,13 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,11 +24,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -122,17 +124,9 @@ fun HomeScreen(
     onExpenseCategory: (Long) -> Unit,
     onNewAccount: () -> Unit,
     onDrop: (Node, Node) -> Unit,
-    onExport: () -> Unit,
-    onImport: () -> Unit,
-    onExportCsv: () -> Unit,
-    onCharts: () -> Unit,
-    onWidget: () -> Unit,
-    onCategories: (CategoryKind) -> Unit,
-    onArchive: () -> Unit,
-    onUpdates: () -> Unit,
+    onSettings: () -> Unit,
     onOperations: () -> Unit,
 ) {
-    var menu by remember { mutableStateOf(false) }
     var newCategory by remember { mutableStateOf<CategoryKind?>(null) } // «+» в заголовке «Доходы»/«Расходы»
     val month = remember {
         val now = LocalDate.now()
@@ -153,7 +147,7 @@ fun HomeScreen(
     val expenseCells = expenseTops.map {
         Cell(Node(NodeKind.EXPENSE, it.id), it.name, multi(rolled[it.id], precisions, compact = true), ExpenseColor)
     }
-    val accountCells = balances.map {
+    val accountCells = balances.inUserOrder().map {
         Cell(Node(NodeKind.ACCOUNT, it.accountId), it.name, "${fmt(it.balance, 0)} ${symbol(it.currencyCode)}", AccountColor, it.balance < 0)
     }
 
@@ -275,22 +269,15 @@ fun HomeScreen(
                     Modifier.fillMaxWidth().statusBarsPadding().padding(end = 16.dp, top = 4.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Filled.Menu, "Меню") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("Графики") }, onClick = { menu = false; onCharts() })
-                            DropdownMenuItem(text = { Text("Экспорт копии базы") }, onClick = { menu = false; onExport() })
-                            DropdownMenuItem(text = { Text("Импорт копии базы") }, onClick = { menu = false; onImport() })
-                            DropdownMenuItem(text = { Text("Экспорт CSV (CoinKeeper)") }, onClick = { menu = false; onExportCsv() })
-                            DropdownMenuItem(text = { Text("Статьи") }, onClick = { menu = false; onCategories(CategoryKind.EXPENSE) })
-                            DropdownMenuItem(text = { Text("Архив счетов") }, onClick = { menu = false; onArchive() })
-                            DropdownMenuItem(text = { Text("Виджет") }, onClick = { menu = false; onWidget() })
-                            DropdownMenuItem(text = { Text("Обновления") }, onClick = { menu = false; onUpdates() })
-                        }
+                    IconButton(onClick = onSettings) { Icon(Icons.Filled.Menu, "Настройки") }
+                    // Лента операций по месяцам — значок календаря (список путали с меню ☰).
+                    IconButton(onClick = onOperations) { Icon(Icons.Filled.DateRange, "Операции по месяцам") }
+                    // Баланс и расходы — заголовки на одной линии (сверху), между ними разделитель.
+                    Row(Modifier.weight(1f).height(IntrinsicSize.Min), verticalAlignment = Alignment.Top) {
+                        HeaderValue("Баланс", multi(balanceByCurrency, precisions, compact = false, sep = "\n"), Modifier.weight(1f))
+                        VerticalDivider(Modifier.fillMaxHeight().padding(horizontal = 12.dp))
+                        HeaderValue("Расходы за месяц", multi(expenseByCurrency, precisions, compact = false, sep = "\n"), Modifier.weight(1f))
                     }
-                    IconButton(onClick = onOperations) { Icon(Icons.AutoMirrored.Filled.List, "Операции") }
-                    HeaderValue("Баланс", multi(balanceByCurrency, precisions, compact = false, sep = "\n"), Modifier.weight(1f))
-                    HeaderValue("Расходы за месяц", multi(expenseByCurrency, precisions, compact = false, sep = "\n"), Modifier.weight(1f))
                 }
             }
         },

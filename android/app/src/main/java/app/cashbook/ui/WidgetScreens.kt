@@ -51,7 +51,8 @@ import app.cashbook.widget.WidgetTheme
 fun WidgetSettingsScreen(dao: CashDao, onBack: () -> Unit) {
     val context = LocalContext.current
     var s by remember { mutableStateOf(WidgetSettings.load(context)) }
-    val balances by remember { dao.balances() }.collectAsState(initial = emptyList())
+    val unordered by remember { dao.balances() }.collectAsState(initial = emptyList())
+    val balances = unordered.inUserOrder()
     fun update(n: WidgetSettings) {
         s = n
         WidgetSettings.save(context, n)
@@ -169,8 +170,8 @@ fun QuickExpenseScreen(dao: CashDao, accountId: Long, onPick: (account: Long, ca
             )
         },
     ) { padding ->
-        val accs = balances ?: return@Scaffold
-        val tops = categories?.filter { it.parentId == null } ?: return@Scaffold
+        val accs = balances?.inUserOrder() ?: return@Scaffold
+        val tops = categories?.filter { it.parentId == null }?.sortedWith(ByName) ?: return@Scaffold
         val selected = accs.find { it.accountId == account } ?: accs.firstOrNull()
         Column(Modifier.padding(padding).fillMaxSize()) {
             Text("Со счёта", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(16.dp, 8.dp))
@@ -217,7 +218,7 @@ fun TransferTargetScreen(dao: CashDao, fromId: Long, onPick: (to: Long) -> Unit,
             )
         },
     ) { padding ->
-        val accs = balances ?: return@Scaffold
+        val accs = balances?.inUserOrder() ?: return@Scaffold
         val from = accs.find { it.accountId == fromId }
         val targets = accs.filter { it.accountId != fromId }
         Column(Modifier.padding(padding).fillMaxSize()) {
