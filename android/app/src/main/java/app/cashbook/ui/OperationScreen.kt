@@ -105,7 +105,8 @@ fun OperationScreen(
         .collectAsState(initial = null)
     val categories by remember { dao.allCategories() }.collectAsState(initial = null)
     val currencies by remember { dao.currencies() }.collectAsState(initial = null)
-    val active by remember { dao.balances() }.collectAsState(initial = emptyList()) // для смены счёта
+    val activeUnordered by remember { dao.balances() }.collectAsState(initial = emptyList()) // для смены счёта
+    val active = activeUnordered.inUserOrder()
 
     // Правка: сумма списания (для дохода — поступления); вторая — зачисление при переводе
     // или сумма в базовой валюте у расхода/дохода. Вторая введена руками — она главнее курса.

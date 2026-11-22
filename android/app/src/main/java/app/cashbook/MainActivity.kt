@@ -52,6 +52,9 @@ import app.cashbook.ui.Node
 import app.cashbook.ui.NodeKind
 import app.cashbook.ui.QuickExpenseScreen
 import app.cashbook.ui.TransferTargetScreen
+import app.cashbook.ui.AccountOrderScreen
+import app.cashbook.ui.SettingsItem
+import app.cashbook.ui.SettingsScreen
 import app.cashbook.ui.UpdatesScreen
 import app.cashbook.update.InstallStatusReceiver
 import app.cashbook.update.Outcome
@@ -119,6 +122,9 @@ class MainActivity : ComponentActivity() {
                 var categoriesKind by rememberSaveable { mutableStateOf<CategoryKind?>(null) } // экран «Статьи»
                 var archive by rememberSaveable { mutableStateOf(false) }
                 var updatesScreen by rememberSaveable { mutableStateOf(false) }
+                // Настройки (☰) — отдельный экран; пункты открываются поверх, «Назад» возвращает в настройки.
+                var settings by rememberSaveable { mutableStateOf(false) }
+                var accountOrder by rememberSaveable { mutableStateOf(false) }
                 var updateOutcome by remember { mutableStateOf<Outcome?>(null) } // диалог проверки/установки
                 var checking by remember { mutableStateOf(false) }
                 // «+» на виджете: id счёта — выбор статьи для нового расхода (только при запуске с виджета).
@@ -199,6 +205,8 @@ class MainActivity : ComponentActivity() {
                 // Экран «Обновления» несохранённого ввода не держит — с него «Обновить» ставит сразу.
                 val home = !restoring && quickAdd == null && transferFrom == null && categoriesKind == null && !archive && !widgetSettings &&
                     accountId == null && operation == null && opId == null && !charts && month == null
+                // Настройки и «Порядок счетов» тоже без несохранённого ввода — флаги settings/accountOrder
+                // сюда не входят: иначе «Обновить» на экране «Обновления» (открыт из настроек) не ставил бы сразу.
                 SideEffect { onHome = home && !confirmImport && updateOutcome == null }
 
                 fun checkUpdates(manual: Boolean) = scope.launch {
@@ -275,6 +283,10 @@ class MainActivity : ComponentActivity() {
                         BackHandler { updatesScreen = false }
                         UpdatesScreen(checking, onCheck = { checkUpdates(manual = true) }, onBack = { updatesScreen = false })
                     }
+                    accountOrder -> {
+                        BackHandler { accountOrder = false }
+                        AccountOrderScreen(dao, onBack = { accountOrder = false })
+                    }
                     widgetSettings -> {
                         BackHandler { widgetSettings = false }
                         WidgetSettingsScreen(dao, onBack = { widgetSettings = false })
@@ -333,6 +345,33 @@ class MainActivity : ComponentActivity() {
                             onTransfer = acc?.let { { transferFrom = it } },
                         )
                     }
+                    settings -> {
+                        BackHandler { settings = false }
+                        SettingsScreen(
+                            listOf(
+                                SettingsItem("Графики") { charts = true },
+                                SettingsItem("Статьи") { categoriesKind = CategoryKind.EXPENSE },
+                                SettingsItem("Порядок счетов") { accountOrder = true },
+                                SettingsItem("Архив счетов") { archive = true },
+                                SettingsItem("Виджет") { widgetSettings = true },
+                                // Свой выбор файла — не уход из приложения: обновление не ставится поверх него.
+                                SettingsItem("Экспорт копии базы") {
+                                    SelfUpdate.ownActivity = true
+                                    exporter.launch("cashbook-${LocalDate.now()}.db")
+                                },
+                                SettingsItem("Импорт копии базы") {
+                                    SelfUpdate.ownActivity = true
+                                    importer.launch(arrayOf("*/*"))
+                                },
+                                SettingsItem("Экспорт CSV (CoinKeeper)") {
+                                    SelfUpdate.ownActivity = true
+                                    csvExporter.launch("coinkeeper-${LocalDate.now()}.csv")
+                                },
+                                SettingsItem("Обновления") { updatesScreen = true },
+                            ),
+                            onBack = { settings = false },
+                        )
+                    }
                     else -> HomeScreen(
                         dao,
                         onAccount = {
@@ -347,15 +386,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onNewAccount = { editing = 0L },
                         onDrop = { from, to -> drop = encodeDrop(from, to) },
-                        // Свой выбор файла — не уход из приложения: обновление не ставится поверх него.
-                        onExport = { SelfUpdate.ownActivity = true; exporter.launch("cashbook-${LocalDate.now()}.db") },
-                        onImport = { SelfUpdate.ownActivity = true; importer.launch(arrayOf("*/*")) },
-                        onCharts = { charts = true },
-                        onWidget = { widgetSettings = true },
-                        onCategories = { categoriesKind = it },
-                        onArchive = { archive = true },
-                        onUpdates = { updatesScreen = true },
-                        onExportCsv = { SelfUpdate.ownActivity = true; csvExporter.launch("coinkeeper-${LocalDate.now()}.csv") },
+                        onSettings = { settings = true },
                         onOperations = {
                             listMonth = YearMonth.now().toString()
                             listState.requestScrollToItem(0) // с главного — сверху; из правки — на прежнее место
