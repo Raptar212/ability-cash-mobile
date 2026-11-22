@@ -23,6 +23,7 @@ object Backup {
      */
     val OLD_HASHES = setOf(
         "4b7a3e4e33d5dc75326ef59553f87f20", // v1
+        "9eedd01f20d3d1abb1ce7f9a12214d13", // v2
     )
 
     /** Hash схемы Room — копия подходит, если он совпадает с рабочей базой или есть в [OLD_HASHES]. */

@@ -16,7 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import java.io.File
 
 /**
- * Миграция 1 → 2 на файле, собранном ровно по `schemas/…/1.json` (схема, hash, user_version):
+ * Миграции 1 → 2 → 3 на файле, собранном ровно по `schemas/…/1.json` (схема, hash, user_version):
  * обновление приложения поверх старой базы и импорт старой копии.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -64,6 +64,7 @@ class MigrationTest {
         assertEquals(300000L, ops[0].expenseAmount)
         assertEquals("хлеб", ops[0].comment)
         assertNull(ops[0].baseAmount) // новое поле у старых операций пустое
+        assertNull(dao().account(1)!!.color) // v3: цвет не выбран — палитра по id
         assertEquals(listOf(700000L), dao().balances().first().map { it.balance })
         assertEquals("Продукты", dao().allCategories().first().single().name) // засев не дублирует дерево
     }
@@ -81,7 +82,7 @@ class MigrationTest {
     @Test fun appUpdateMigratesV1Database() {
         createV1(ctx.getDatabasePath(AppDatabase.NAME))
         assertV1DataMigrated()
-        assertEquals(2, AppDatabase.get(ctx).openHelper.readableDatabase.version)
+        assertEquals(3, AppDatabase.get(ctx).openHelper.readableDatabase.version)
     }
 
     @Test fun v1CopyIsAcceptedAndMigratedOnRestore() {

@@ -1,7 +1,20 @@
 package app.cashbook.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -130,6 +143,25 @@ fun AccountEditScreen(dao: CashDao, accountId: Long, onDone: () -> Unit) {
                 label = { Text("Комментарий") },
                 modifier = Modifier.fillMaxWidth(),
             )
+            Text("Цвет в ленте", style = MaterialTheme.typography.labelLarge)
+            // Не выбран — отмечен авто-цвет по id; у нового счёта id ещё нет, отметки нет.
+            val current = d.color ?: existing?.let { accountArgb(it.id, null) }
+            for (row in ACCOUNT_COLORS.withIndex().chunked(6)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for ((i, argb) in row) {
+                        val selected = argb == current
+                        Box(
+                            Modifier.size(48.dp).clip(CircleShape).background(Color(argb))
+                                .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
+                                .selectable(selected, role = Role.RadioButton) { draft = d.copy(color = argb) }
+                                .semantics { contentDescription = ACCOUNT_COLOR_NAMES[i] },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (selected) Icon(Icons.Filled.Check, null, tint = Color.White)
+                        }
+                    }
+                }
+            }
             Button(
                 onClick = {
                     if (saving) return@Button // повторный клик в том же кадре — без дубля
