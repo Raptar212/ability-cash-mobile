@@ -1,11 +1,13 @@
 package app.cashbook.ui
 
+import android.content.Context
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 private val Light = lightColorScheme(
     primary = Color(0xFF00796B),
@@ -25,14 +27,40 @@ private val Dark = darkColorScheme(
     onSecondaryContainer = Color(0xFFCCE8E2),
 )
 
-/** Тема приложения: бирюзовый акцент, светлая или тёмная — как в системе. */
+/** Тема приложения (Настройки → Внешний вид); хранится в SharedPreferences `app`. Виджет — своя настройка. */
+enum class AppTheme(val title: String) {
+    SYSTEM("Как в системе"),
+    LIGHT("Светлая"),
+    DARK("Тёмная");
+
+    @Composable
+    fun isDark() = when (this) {
+        SYSTEM -> isSystemInDarkTheme()
+        LIGHT -> false
+        DARK -> true
+    }
+
+    companion object {
+        private fun prefs(context: Context) = context.getSharedPreferences("app", Context.MODE_PRIVATE)
+
+        fun load(context: Context) = entries.find { it.name == prefs(context).getString("theme", null) } ?: SYSTEM
+
+        fun save(context: Context, theme: AppTheme) = prefs(context).edit().putString("theme", theme.name).apply()
+    }
+}
+
+/** Тема приложения: бирюзовый акцент, светлая или тёмная по [dark]. */
 @Composable
-fun CashbookTheme(content: @Composable () -> Unit) =
-    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) Dark else Light, content = content)
+fun CashbookTheme(dark: Boolean, content: @Composable () -> Unit) =
+    MaterialTheme(colorScheme = if (dark) Dark else Light, content = content)
+
+/** Тёмная ли тема сейчас — по фону схемы, а не по системе: тема могла быть выбрана вручную. */
+@Composable
+private fun darkScheme() = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
 /** Столбики доходов: на тёмном фоне индиго светлее (#3F51B5 там даёт контраст ~2,6:1, нужно 3:1). */
 @Composable
-fun chartIncomeColor() = if (isSystemInDarkTheme()) Color(0xFF7986CB) else IncomeColor
+fun chartIncomeColor() = if (darkScheme()) Color(0xFF7986CB) else IncomeColor
 
 /** Цвета счетов в ленте: средние тона, читаются и на светлом, и на тёмном фоне. Порядок не менять — по нему авто-цвет. */
 val ACCOUNT_COLORS = listOf(
@@ -51,4 +79,4 @@ fun accountArgb(id: Long, color: Int?): Int = color ?: ACCOUNT_COLORS[Math.floor
 
 /** Цвет суммы дохода в ленте — зелёный, читаемый на светлом и тёмном фоне. */
 @Composable
-fun incomeColor() = if (isSystemInDarkTheme()) Color(0xFF81C784) else Color(0xFF2E7D32)
+fun incomeColor() = if (darkScheme()) Color(0xFF81C784) else Color(0xFF2E7D32)

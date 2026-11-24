@@ -36,7 +36,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import app.cashbook.data.AppDatabase
 import app.cashbook.data.Backup
+import app.cashbook.reminder.Reminder
 import app.cashbook.ui.AccountEditScreen
+import app.cashbook.ui.AppTheme
+import app.cashbook.ui.AppearanceScreen
+import app.cashbook.ui.ReminderScreen
 import app.cashbook.data.CategoryKind
 import app.cashbook.ui.ArchivedAccountsScreen
 import app.cashbook.ui.CashbookTheme
@@ -100,13 +104,21 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Тема как в системе — значки статус-бара тёмные на светлой, светлые на тёмной.
+        // До первого кадра — как в системе; дальше стиль баров задаёт выбранная тема (LaunchedEffect ниже).
         val bars = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT)
         enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
         super.onCreate(savedInstanceState)
         val importFile = File(cacheDir, "import.db")
+        Reminder.schedule(this) // будильник мог пропасть (принудительная остановка) — ставим заново
         setContent {
-            CashbookTheme {
+            // Тема из настроек; значки статус-бара — по ней, а не по системе.
+            var theme by remember { mutableStateOf(AppTheme.load(this)) }
+            val dark = theme.isDark()
+            LaunchedEffect(dark) {
+                val style = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
+            CashbookTheme(dark) {
                 // Навигация состоянием (переживает поворот): форма счёта (0 — новый) или ввод операции.
                 var editing by rememberSaveable { mutableStateOf<Long?>(null) }
                 var drop by rememberSaveable { mutableStateOf<String?>(null) }
@@ -124,6 +136,7 @@ class MainActivity : ComponentActivity() {
                 var updatesScreen by rememberSaveable { mutableStateOf(false) }
                 // Настройки (☰) — отдельный экран; пункты открываются поверх, «Назад» возвращает в настройки.
                 var settings by rememberSaveable { mutableStateOf(false) }
+                var section by rememberSaveable { mutableStateOf<String?>(null) } // раздел настроек
                 var accountOrder by rememberSaveable { mutableStateOf(false) }
                 var updateOutcome by remember { mutableStateOf<Outcome?>(null) } // диалог проверки/установки
                 var checking by remember { mutableStateOf(false) }
@@ -346,31 +359,65 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     settings -> {
-                        BackHandler { settings = false }
-                        SettingsScreen(
-                            listOf(
-                                SettingsItem("Графики") { charts = true },
-                                SettingsItem("Статьи") { categoriesKind = CategoryKind.EXPENSE },
-                                SettingsItem("Порядок счетов") { accountOrder = true },
-                                SettingsItem("Архив счетов") { archive = true },
-                                SettingsItem("Виджет") { widgetSettings = true },
-                                // Свой выбор файла — не уход из приложения: обновление не ставится поверх него.
-                                SettingsItem("Экспорт копии базы") {
-                                    SelfUpdate.ownActivity = true
-                                    exporter.launch("cashbook-${LocalDate.now()}.db")
+                        // Раздел открыт поверх списка разделов: «Назад» — в список, оттуда — на главный.
+                        BackHandler { if (section != null) section = null else settings = false }
+                        val back = { section = null }
+                        when (section) {
+                            "appearance" -> AppearanceScreen(
+                                theme,
+                                onTheme = {
+                                    theme = it
+                                    AppTheme.save(this, it)
                                 },
-                                SettingsItem("Импорт копии базы") {
-                                    SelfUpdate.ownActivity = true
-                                    importer.launch(arrayOf("*/*"))
-                                },
-                                SettingsItem("Экспорт CSV (CoinKeeper)") {
-                                    SelfUpdate.ownActivity = true
-                                    csvExporter.launch("coinkeeper-${LocalDate.now()}.csv")
-                                },
-                                SettingsItem("Обновления") { updatesScreen = true },
-                            ),
-                            onBack = { settings = false },
-                        )
+                                onWidget = { widgetSettings = true },
+                                onBack = back,
+                            )
+                            "reminder" -> ReminderScreen(onBack = back)
+                            "accounting" -> SettingsScreen(
+                                "Учёт",
+                                listOf(
+                                    SettingsItem("Статьи") { categoriesKind = CategoryKind.EXPENSE },
+                                    SettingsItem("Порядок счетов") { accountOrder = true },
+                                    SettingsItem("Архив счетов") { archive = true },
+                                ),
+                                onBack = back,
+                            )
+                            "data" -> SettingsScreen(
+                                "Данные",
+                                listOf(
+                                    // Свой выбор файла — не уход из приложения: обновление не ставится поверх него.
+                                    SettingsItem("Экспорт копии базы") {
+                                        SelfUpdate.ownActivity = true
+                                        exporter.launch("cashbook-${LocalDate.now()}.db")
+                                    },
+                                    SettingsItem("Импорт копии базы") {
+                                        SelfUpdate.ownActivity = true
+                                        importer.launch(arrayOf("*/*"))
+                                    },
+                                    SettingsItem("Экспорт CSV (CoinKeeper)") {
+                                        SelfUpdate.ownActivity = true
+                                        csvExporter.launch("coinkeeper-${LocalDate.now()}.csv")
+                                    },
+                                ),
+                                onBack = back,
+                            )
+                            else -> SettingsScreen(
+                                "Настройки",
+                                listOf(
+                                    SettingsItem("Графики") { charts = true },
+                                    SettingsItem("Внешний вид", "Тема: ${theme.title.lowercase()}, виджет") { section = "appearance" },
+                                    SettingsItem("Учёт", "Статьи, порядок и архив счетов") { section = "accounting" },
+                                    SettingsItem(
+                                        "Напоминание",
+                                        Reminder.time(this).takeIf { Reminder.enabled(this) && Reminder.permitted(this) }
+                                            ?.let { "Каждый день в %02d:%02d".format(it.hour, it.minute) } ?: "Выключено",
+                                    ) { section = "reminder" },
+                                    SettingsItem("Данные", "Копия базы, экспорт CSV") { section = "data" },
+                                    SettingsItem("Обновления") { updatesScreen = true },
+                                ),
+                                onBack = { settings = false },
+                            )
+                        }
                     }
                     else -> HomeScreen(
                         dao,

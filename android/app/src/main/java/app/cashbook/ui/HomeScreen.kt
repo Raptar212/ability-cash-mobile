@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -52,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -270,13 +270,16 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onSettings) { Icon(Icons.Filled.Menu, "Настройки") }
-                    // Лента операций по месяцам — значок календаря (список путали с меню ☰).
-                    IconButton(onClick = onOperations) { Icon(Icons.Filled.DateRange, "Операции по месяцам") }
                     // Баланс и расходы — заголовки на одной линии (сверху), между ними разделитель.
                     Row(Modifier.weight(1f).height(IntrinsicSize.Min), verticalAlignment = Alignment.Top) {
                         HeaderValue("Баланс", multi(balanceByCurrency, precisions, compact = false, sep = "\n"), Modifier.weight(1f))
                         VerticalDivider(Modifier.fillMaxHeight().padding(horizontal = 12.dp))
-                        HeaderValue("Расходы за месяц", multi(expenseByCurrency, precisions, compact = false, sep = "\n"), Modifier.weight(1f))
+                        // Плашка расходов — вход в ленту операций по месяцам (вместо значка календаря).
+                        HeaderValue(
+                            "Расходы за месяц",
+                            multi(expenseByCurrency, precisions, compact = false, sep = "\n"),
+                            Modifier.weight(1f).clickable(onClickLabel = "Операции за месяц", role = Role.Button, onClick = onOperations),
+                        )
                     }
                 }
             }
