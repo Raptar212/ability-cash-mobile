@@ -170,6 +170,24 @@ class OperationLogicTest {
         assertEquals(m("1234567,0001"), Calc.eval(toExpr(m("1234567,0001")), 4))
     }
 
+    @Test fun groupDigitsSplitsOnlyWholePart() {
+        assertEquals("2 500", groupDigits("2500"))
+        assertEquals("999", groupDigits("999"))
+        assertEquals("12 500,12345", groupDigits("12500,12345")) // дробная часть не делится
+        assertEquals("1 000+2 000 000", groupDigits("1000+2000000"))
+        assertEquals("", groupDigits(""))
+    }
+
+    @Test fun circleInitialsSkipStopWordsAndStayUnique() {
+        assertEquals(listOf("КР", "ОО", "ПР"), circleInitials(listOf("Кафе и рестораны", "Одежда и обувь", "Прочие расходы")))
+        assertEquals(listOf("По", "Пд", "Пр"), circleInitials(listOf("Подработка", "Подарки", "Проценты")))
+        assertEquals(listOf("По", "Пд"), circleInitials(listOf("Покупки", "Подарки"))) // дубль «По» → следующая буква
+        assertEquals(listOf("Na", "Ka"), circleInitials(listOf("Nal", "Karta")))
+        assertEquals(listOf("US", "ЗП"), circleInitials(listOf("USD", "ЗП"))) // заглавные остаются заглавными
+        assertEquals(listOf("ЗП"), circleInitials(listOf("З/П (аванс)"))) // скобки и слэш — разделители
+        assertEquals(listOf("", "Ап"), circleInitials(listOf("123", "Аптека"))) // без букв — пусто, не падает
+    }
+
     @Test fun byDayKeepsOrderAndSumsExpensesPerCurrency() {
         val ops = listOf(
             Operation(id = 1, date = 5, expenseAccountId = 10, expenseAmount = m("10"), categoryId = 13),

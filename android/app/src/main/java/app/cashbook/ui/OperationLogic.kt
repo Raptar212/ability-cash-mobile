@@ -138,6 +138,38 @@ fun dropOf(op: Operation, categories: List<Category>): Pair<Node, Node>? {
     }
 }
 
+/** Служебные слова не дают букву инициалам: «Кафе и рестораны» → «КР», а не «КИ». */
+private val STOP_WORDS = setOf("и", "в", "во", "на", "с", "со", "для", "по", "за", "о", "об", "от", "из", "к", "and", "of", "for")
+
+/**
+ * Инициалы кружков одного ряда — разные у разных названий: «Подработка» → «По», «Подарки» → «Пд».
+ * Два слова и больше — первые буквы двух первых значимых слов («Прочие доходы» → «ПД»), одно — первая
+ * буква и следующая по слову, ещё не занятая в ряду. Все варианты заняты — повтор первого.
+ */
+fun circleInitials(names: List<String>): List<String> {
+    val used = mutableSetOf<String>()
+    return names.map { name ->
+        val words = name.split(Regex("[^\\p{L}\\d]+")).filter { w -> w.any { it.isLetter() } }
+        val meaningful = words.filter { it.lowercase() !in STOP_WORDS }.ifEmpty { words }
+        val first = meaningful.firstOrNull().orEmpty().filter { it.isLetter() }
+        val candidates = buildList {
+            if (meaningful.size >= 2) add("${first.first()}${meaningful[1].first { it.isLetter() }}".uppercase())
+            if (first.isNotEmpty()) {
+                val head = first.first().uppercaseChar()
+                for (c in first.drop(1)) add("$head$c") // регистр второй буквы — как в названии: «USD» → «US»
+                add(head.toString())
+            }
+        }.distinct()
+        val pick = candidates.firstOrNull { it !in used } ?: candidates.firstOrNull().orEmpty()
+        used += pick
+        pick
+    }
+}
+
+/** Показ ввода калькулятора: разряды целой части через пробел, как в `Money.format` («12500,5+1000» → «12 500,5+1 000»). */
+fun groupDigits(expr: String): String =
+    Regex("(?<![,\\d])\\d{4,}").replace(expr) { it.value.reversed().chunked(3).joinToString(" ").reversed() }
+
 /** Сумма как ввод калькулятора: 125000 → «12,5», без пробелов и лишних нулей. */
 fun toExpr(amount: Long): String = Money.format(amount, 4).replace(" ", "").trimEnd('0').trimEnd(',')
 

@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,7 +44,7 @@ fun UpdatesScreen(checking: Boolean, onCheck: () -> Unit, onBack: () -> Unit) {
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             Text(
-                "Установлена версия ${Updates.current(context)}. Новые версии — в релизах GitHub; данные при обновлении сохраняются.",
+                "Установлена версия ${Updates.current(context)}. Новые версии — в релизах GitHub; данные при обновлении сохраняются.",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -51,11 +52,13 @@ fun UpdatesScreen(checking: Boolean, onCheck: () -> Unit, onBack: () -> Unit) {
                 enabled = it
                 Updates.setEnabled(context, it)
             }
+            HorizontalDivider()
             if (SelfUpdate.silentSupported) {
                 SwitchRow("Устанавливать без вопросов", "По Wi-Fi, когда вы выходите из приложения", silent) {
                     silent = it
                     Updates.setSilent(context, it)
                 }
+                HorizontalDivider()
             }
             Button(
                 onClick = onCheck,

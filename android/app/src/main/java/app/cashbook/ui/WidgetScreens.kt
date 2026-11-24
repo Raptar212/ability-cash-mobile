@@ -91,7 +91,9 @@ fun WidgetSettingsScreen(dao: CashDao, onBack: () -> Unit) {
                     }
                 }
             }
+            HorizontalDivider()
             SwitchRow("Расходы за месяц", null, s.showExpenses) { update(s.copy(showExpenses = it)) }
+            HorizontalDivider()
             SwitchRow("Отдельные счета", "Ничего не отмечено — все счета", s.showAccounts) { update(s.copy(showAccounts = it)) }
             if (s.showAccounts) {
                 Chips {
@@ -107,6 +109,7 @@ fun WidgetSettingsScreen(dao: CashDao, onBack: () -> Unit) {
                     }
                 }
             }
+            HorizontalDivider()
             SwitchRow("Кнопка «+ расход»", "Счёт по умолчанию:", s.showAdd) { update(s.copy(showAdd = it)) }
             if (s.showAdd) {
                 val current = balances.find { it.accountId == s.addAccountId } ?: balances.firstOrNull()
@@ -120,7 +123,7 @@ fun WidgetSettingsScreen(dao: CashDao, onBack: () -> Unit) {
                     }
                 }
             }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(Modifier.padding(bottom = 8.dp))
             Text("Вид", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 16.dp))
             Chips {
                 for (t in WidgetTheme.entries) {

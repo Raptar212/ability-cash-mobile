@@ -404,7 +404,7 @@ class MainActivity : ComponentActivity() {
                             else -> SettingsScreen(
                                 "Настройки",
                                 listOf(
-                                    SettingsItem("Графики") { charts = true },
+                                    SettingsItem("Графики", "Расходы и доходы по статьям и месяцам") { charts = true },
                                     SettingsItem("Внешний вид", "Тема: ${theme.title.lowercase()}, виджет") { section = "appearance" },
                                     SettingsItem("Учёт", "Статьи, порядок и архив счетов") { section = "accounting" },
                                     SettingsItem(
@@ -413,7 +413,7 @@ class MainActivity : ComponentActivity() {
                                             ?.let { "Каждый день в %02d:%02d".format(it.hour, it.minute) } ?: "Выключено",
                                     ) { section = "reminder" },
                                     SettingsItem("Данные", "Копия базы, экспорт CSV") { section = "data" },
-                                    SettingsItem("Обновления") { updatesScreen = true },
+                                    SettingsItem("Обновления", "Версия ${Updates.current(this)}") { updatesScreen = true },
                                 ),
                                 onBack = { settings = false },
                             )

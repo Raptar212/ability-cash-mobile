@@ -107,7 +107,7 @@ fun OperationsScreen(
         }
     }
     val title = when (filter) {
-        OpsFilter.All -> null
+        OpsFilter.All -> "Операции"
         is OpsFilter.Account -> accountById[filter.id]?.name ?: ""
         is OpsFilter.Category -> catById[filter.id]?.name ?: ""
     }
@@ -133,42 +133,19 @@ fun OperationsScreen(
 
     fun accountColor(id: Long?) = id?.let { accountById[it] }?.let { Color(accountArgb(it.id, it.color)) }
 
-    @Composable
-    fun monthSwitcher(modifier: Modifier) {
-        Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { go(month.minusMonths(1)) }) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Предыдущий месяц")
-            }
-            Text(
-                month.format(DateTimeFormatter.ofPattern("LLLL yyyy", RU)).replaceFirstChar { it.titlecase(RU) },
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-            )
-            IconButton(onClick = { go(month.plusMonths(1)) }) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Следующий месяц")
-            }
-        }
-    }
-
     Scaffold(
         topBar = {
             Column {
                 TopAppBar(
                     navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
-                    title = {
-                        if (title == null) {
-                            monthSwitcher(Modifier)
-                        } else {
-                            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    },
+                    title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     actions = {
                         onEdit?.let { IconButton(onClick = it) { Icon(Icons.Filled.Edit, "Изменить") } }
                         onTransfer?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "Перевод на другой счёт") } }
                         onAdd?.let { IconButton(onClick = it) { Icon(Icons.Filled.Add, "Добавить операцию") } }
                     },
                 )
-                if (title != null) Surface(tonalElevation = 3.dp) { monthSwitcher(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) }
+                MonthSwitcher(month, onChange = ::go)
             }
         },
     ) { padding ->
@@ -190,7 +167,12 @@ fun OperationsScreen(
                                 modifier = Modifier.weight(1f),
                             )
                             if (day.expenses.isNotEmpty()) {
-                                Text("−" + multi(day.expenses, precisions, compact = false), style = MaterialTheme.typography.labelLarge)
+                                // Минус у каждой валюты; отступ — дата и сумма не слипаются при крупном шрифте.
+                                Text(
+                                    multi(day.expenses.mapValues { -it.value }, precisions, compact = false),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    modifier = Modifier.padding(start = 12.dp),
+                                )
                             }
                         }
                     }
@@ -293,4 +275,26 @@ fun EditOperationScreen(dao: CashDao, id: Long, onDone: () -> Unit) {
     }
     val (op, drop) = loaded ?: return
     OperationScreen(dao, drop.first, drop.second, onDone, editing = op)
+}
+
+/** Переключатель месяца — одинаковый в лентах и графиках: полоса под верхней панелью, месяц по центру. */
+@Composable
+fun MonthSwitcher(month: YearMonth, onChange: (YearMonth) -> Unit) {
+    Surface(tonalElevation = 3.dp) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { onChange(month.minusMonths(1)) }) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Предыдущий месяц")
+            }
+            Text(
+                month.format(DateTimeFormatter.ofPattern("LLLL yyyy", RU)).replaceFirstChar { it.titlecase(RU) },
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { onChange(month.plusMonths(1)) }) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Следующий месяц")
+            }
+        }
+    }
 }
