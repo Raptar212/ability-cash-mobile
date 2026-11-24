@@ -14,6 +14,9 @@ import java.time.format.DateTimeFormatter
  * кавычках, старые сверху. Доход в CoinKeeper — перевод из источника дохода на счёт.
  */
 object CoinKeeperCsv {
+    /** Пункт «Экспорт CSV (CoinKeeper)» в меню «Данные». Логика остаётся; включить — true. */
+    const val ENABLED = false
+
     private val HEADER = listOf(
         "Данные", "Тип", "Из", "В", "Метки", "Сумма", "Валюта", "Сумма в др.валюте", "Др.валюта", "Повторение", "Заметка",
     )
