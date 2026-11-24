@@ -384,7 +384,7 @@ class MainActivity : ComponentActivity() {
                             )
                             "data" -> SettingsScreen(
                                 "Данные",
-                                listOf(
+                                listOfNotNull(
                                     // Свой выбор файла — не уход из приложения: обновление не ставится поверх него.
                                     SettingsItem("Экспорт копии базы") {
                                         SelfUpdate.ownActivity = true
@@ -394,10 +394,10 @@ class MainActivity : ComponentActivity() {
                                         SelfUpdate.ownActivity = true
                                         importer.launch(arrayOf("*/*"))
                                     },
-                                    SettingsItem("Экспорт CSV (CoinKeeper)") {
+                                    if (CoinKeeperCsv.ENABLED) SettingsItem("Экспорт CSV (CoinKeeper)") {
                                         SelfUpdate.ownActivity = true
                                         csvExporter.launch("coinkeeper-${LocalDate.now()}.csv")
-                                    },
+                                    } else null,
                                 ),
                                 onBack = back,
                             )
@@ -412,7 +412,7 @@ class MainActivity : ComponentActivity() {
                                         Reminder.time(this).takeIf { Reminder.enabled(this) && Reminder.permitted(this) }
                                             ?.let { "Каждый день в %02d:%02d".format(it.hour, it.minute) } ?: "Выключено",
                                     ) { section = "reminder" },
-                                    SettingsItem("Данные", "Копия базы, экспорт CSV") { section = "data" },
+                                    SettingsItem("Данные", if (CoinKeeperCsv.ENABLED) "Копия базы, экспорт CSV" else "Копия базы") { section = "data" },
                                     SettingsItem("Обновления", "Версия ${Updates.current(this)}") { updatesScreen = true },
                                 ),
                                 onBack = { settings = false },
