@@ -486,7 +486,7 @@ private fun AmountLine(
             if (label != null) Text(label, style = MaterialTheme.typography.labelLarge)
             // Длинное выражение не обрезает конец: строка прокручивается и стоит на последних цифрах.
             Text(
-                expr.ifEmpty { hint ?: "0" },
+                groupDigits(expr).ifEmpty { hint ?: "0" },
                 color = if (expr.isEmpty() && hint != null) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified,
                 fontSize = 36.sp,
                 fontWeight = FontWeight.Light,

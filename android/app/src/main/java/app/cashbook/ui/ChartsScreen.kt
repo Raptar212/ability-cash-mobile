@@ -5,10 +5,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,8 +26,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -86,7 +85,7 @@ private fun monthTitle(m: YearMonth, pattern: String) =
     m.format(DateTimeFormatter.ofPattern(pattern, RU)).replaceFirstChar { it.titlecase(RU) }
 
 /** Графики: круг по статьям за месяц и столбики расходов/доходов за 12 месяцев. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
     var monthText by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
@@ -126,36 +125,29 @@ fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
-                title = { Text("Графики") },
-            )
+            Column {
+                TopAppBar(
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                    title = { Text("Графики") },
+                )
+                MonthSwitcher(month, onChange = { monthText = it.toString(); parent = null })
+            }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
-            // Фильтры — одной полосой над графиками.
-            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { monthText = month.minusMonths(1).toString(); parent = null }) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Предыдущий месяц")
-                }
-                Text(
-                    monthTitle(month, "LLLL yyyy"), style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f), textAlign = TextAlign.Center,
-                )
-                IconButton(onClick = { monthText = month.plusMonths(1).toString(); parent = null }) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Следующий месяц")
-                }
-            }
-            // Узкий экран — полоса фильтров прокручивается, чипы не переносятся.
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // Две группы чипов: не влезают в строку — валюты целиком переносятся вниз, край не режет чип.
+            FlowRow(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                FilterChip(selected = expense, onClick = { expense = true; parent = null }, label = { Text("Расходы") })
-                FilterChip(selected = !expense, onClick = { expense = false; parent = null }, label = { Text("Доходы") })
-                Spacer(Modifier.width(8.dp))
-                for (c in currencies) {
-                    FilterChip(selected = c.code == cur, onClick = { code = c.code; parent = null }, label = { Text(c.code) })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = expense, onClick = { expense = true; parent = null }, label = { Text("Расходы") })
+                    FilterChip(selected = !expense, onClick = { expense = false; parent = null }, label = { Text("Доходы") })
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (c in currencies) {
+                        FilterChip(selected = c.code == cur, onClick = { code = c.code; parent = null }, label = { Text(c.code) })
+                    }
                 }
             }
 
@@ -199,9 +191,10 @@ fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
                             s.name + if (s.hasChildren) " ›" else "",
                             modifier = Modifier.padding(start = 12.dp).weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
-                        Text(money(s.amount), style = MaterialTheme.typography.bodyMedium)
+                        // Название, сумма и доля — одним размером (bodyLarge), доля — приглушённым цветом.
+                        Text(money(s.amount))
                         Text(
-                            "${percent(s.amount, total)}%", style = MaterialTheme.typography.bodyMedium,
+                            "${percent(s.amount, total)}%",
                             color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End,
                             modifier = Modifier.padding(start = 8.dp).widthIn(min = 44.dp),
                         )

@@ -104,7 +104,8 @@ fun AccountEditScreen(dao: CashDao, accountId: Long, onDone: () -> Unit) {
                 onValueChange = { draft = d.copy(name = it) },
                 label = { Text("Название") },
                 isError = errors.name != null,
-                supportingText = { errors.name?.let { Text(it) } },
+                // Место под ошибку — только при ошибке, иначе поле даёт лишний отступ снизу.
+                supportingText = errors.name?.let { e -> { Text(e) } },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -132,7 +133,7 @@ fun AccountEditScreen(dao: CashDao, accountId: Long, onDone: () -> Unit) {
                 onValueChange = { draft = d.copy(balance = it) },
                 label = { Text("Начальный остаток") },
                 isError = errors.balance != null,
-                supportingText = { errors.balance?.let { Text(it) } },
+                supportingText = errors.balance?.let { e -> { Text(e) } },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth(),
@@ -147,7 +148,8 @@ fun AccountEditScreen(dao: CashDao, accountId: Long, onDone: () -> Unit) {
             // Не выбран — отмечен авто-цвет по id; у нового счёта id ещё нет, отметки нет.
             val current = d.color ?: existing?.let { accountArgb(it.id, null) }
             for (row in ACCOUNT_COLORS.withIndex().chunked(6)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Шесть кружков на всю ширину — края совпадают с полями и кнопками.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     for ((i, argb) in row) {
                         val selected = argb == current
                         Box(

@@ -3,12 +3,16 @@ package app.cashbook.ui
 import android.content.Context
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 
+// Фон и поверхности — нейтральные с бирюзовым оттенком (тональная палитра Material для бирюзы),
+// иначе остаются сиреневые по умолчанию из Material 3.
 private val Light = lightColorScheme(
     primary = Color(0xFF00796B),
     onPrimary = Color.White,
@@ -16,6 +20,23 @@ private val Light = lightColorScheme(
     onPrimaryContainer = Color(0xFF00201C),
     secondaryContainer = Color(0xFFCCE8E2),
     onSecondaryContainer = Color(0xFF05201C),
+    background = Color(0xFFF4FBF8),
+    onBackground = Color(0xFF171D1B),
+    surface = Color(0xFFF4FBF8),
+    onSurface = Color(0xFF171D1B),
+    surfaceVariant = Color(0xFFDAE5E1),
+    onSurfaceVariant = Color(0xFF3F4946),
+    outline = Color(0xFF6F7976),
+    outlineVariant = Color(0xFFBEC9C5),
+    inverseSurface = Color(0xFF2B3230),
+    inverseOnSurface = Color(0xFFECF2EF),
+    surfaceDim = Color(0xFFD5DBD9),
+    surfaceBright = Color(0xFFF4FBF8),
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color(0xFFEEF5F2),
+    surfaceContainer = Color(0xFFE9EFEC),
+    surfaceContainerHigh = Color(0xFFE3EAE7),
+    surfaceContainerHighest = Color(0xFFDDE4E1),
 )
 
 private val Dark = darkColorScheme(
@@ -25,7 +46,36 @@ private val Dark = darkColorScheme(
     onPrimaryContainer = Color(0xFF9FF2E6),
     secondaryContainer = Color(0xFF334B47),
     onSecondaryContainer = Color(0xFFCCE8E2),
+    background = Color(0xFF0E1513),
+    onBackground = Color(0xFFDDE4E1),
+    surface = Color(0xFF0E1513),
+    onSurface = Color(0xFFDDE4E1),
+    surfaceVariant = Color(0xFF3F4946),
+    onSurfaceVariant = Color(0xFFBEC9C5),
+    outline = Color(0xFF899390),
+    outlineVariant = Color(0xFF3F4946),
+    inverseSurface = Color(0xFFDDE4E1),
+    inverseOnSurface = Color(0xFF2B3230),
+    surfaceDim = Color(0xFF0E1513),
+    surfaceBright = Color(0xFF343B39),
+    surfaceContainerLowest = Color(0xFF090F0E),
+    surfaceContainerLow = Color(0xFF171D1B),
+    surfaceContainer = Color(0xFF1B211F),
+    surfaceContainerHigh = Color(0xFF252B2A),
+    surfaceContainerHighest = Color(0xFF303634),
 )
+
+/** Типографика Material с моноширинными цифрами (`tnum`): суммы в столбик встают по разрядам. */
+private val CashbookTypography = Typography().run {
+    fun TextStyle.tnum() = copy(fontFeatureSettings = "tnum")
+    Typography(
+        displayLarge.tnum(), displayMedium.tnum(), displaySmall.tnum(),
+        headlineLarge.tnum(), headlineMedium.tnum(), headlineSmall.tnum(),
+        titleLarge.tnum(), titleMedium.tnum(), titleSmall.tnum(),
+        bodyLarge.tnum(), bodyMedium.tnum(), bodySmall.tnum(),
+        labelLarge.tnum(), labelMedium.tnum(), labelSmall.tnum(),
+    )
+}
 
 /** Тема приложения (Настройки → Внешний вид); хранится в SharedPreferences `app`. Виджет — своя настройка. */
 enum class AppTheme(val title: String) {
@@ -52,7 +102,7 @@ enum class AppTheme(val title: String) {
 /** Тема приложения: бирюзовый акцент, светлая или тёмная по [dark]. */
 @Composable
 fun CashbookTheme(dark: Boolean, content: @Composable () -> Unit) =
-    MaterialTheme(colorScheme = if (dark) Dark else Light, content = content)
+    MaterialTheme(colorScheme = if (dark) Dark else Light, typography = CashbookTypography, content = content)
 
 /** Тёмная ли тема сейчас — по фону схемы, а не по системе: тема могла быть выбрана вручную. */
 @Composable

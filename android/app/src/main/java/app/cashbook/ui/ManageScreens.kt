@@ -20,7 +20,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -38,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.cashbook.data.CashDao
 import app.cashbook.data.Category
@@ -96,19 +96,16 @@ fun CategoriesScreen(dao: CashDao, initialKind: CategoryKind, onBack: () -> Unit
             message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp, 4.dp)) }
             LazyColumn {
                 items(tree, key = { it.first.id }) { (c, depth) ->
-                    // Иерархия: старшая статья — на тёмном фоне во всю ширину, подстатьи — светлые с отступом
-                    // и «›» перед именем (вложенность глубже — отступ больше).
+                    // Иерархия без заливки: старшая статья — жирнее, подстатьи — с отступом и «›» перед именем
+                    // (вложенность глубже — отступ больше). Заливка сплошь шла стеной, когда подстатей нет.
                     ListItem(
                         headlineContent = {
                             if (depth == 0) {
-                                Text(c.name, style = MaterialTheme.typography.titleMedium)
+                                Text(c.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             } else {
                                 Text("› ${c.name}", style = MaterialTheme.typography.bodyLarge)
                             }
                         },
-                        colors = ListItemDefaults.colors(
-                            containerColor = if (depth == 0) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
-                        ),
                         modifier = Modifier.clickable { chosen = c }.padding(start = (depth * 24).dp),
                     )
                     HorizontalDivider()

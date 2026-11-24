@@ -67,6 +67,9 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.text.rememberTextMeasurer
 import app.cashbook.data.CashDao
 import app.cashbook.data.Category
 import app.cashbook.data.CategoryKind
@@ -92,8 +95,9 @@ fun symbol(code: String) = when (code) {
     else -> code
 }
 
-/** Формат без падения: вне диапазона `Money.format` — «—». */
-fun fmt(amount: Long, precision: Int): String = runCatching { Money.format(amount, precision) }.getOrDefault("—")
+/** Формат для экрана: минус — «−» (U+2212, шириной с «+»), вне диапазона `Money.format` — «—». */
+fun fmt(amount: Long, precision: Int): String =
+    runCatching { Money.format(amount, precision).replace('-', '−') }.getOrDefault("—")
 
 /** «1 234 ₴ · 20 $»; пусто — «0». [precisions] — точность по коду валюты, [sep] — между валютами. */
 fun multi(sums: Map<String, Long>?, precisions: Map<String, Int>, compact: Boolean, sep: String = " · "): String {
@@ -103,17 +107,14 @@ fun multi(sums: Map<String, Long>?, precisions: Map<String, Int>, compact: Boole
     }
 }
 
-private fun initials(name: String): String {
-    val words = name.split(' ', '(', ',', '_').filter { w -> w.any { it.isLetter() } }
-    return if (words.size >= 2) {
-        "${words[0].first { it.isLetter() }}${words[1].first { it.isLetter() }}".uppercase()
-    } else {
-        name.filter { it.isLetter() }.take(2)
-    }
-}
-
 /** Ячейка ряда: кружок статьи или счёта с подписью и суммой; [negative] — сумма красным. */
-private data class Cell(val node: Node, val label: String, val amount: String, val color: Color, val negative: Boolean = false)
+private data class Cell(
+    val node: Node, val label: String, val amount: String, val color: Color,
+    val negative: Boolean = false, val initials: String = "",
+)
+
+/** Инициалы ряда — уникальные в ряду ([circleInitials]). */
+private fun List<Cell>.withInitials() = zip(circleInitials(map { it.label })) { c, i -> c.copy(initials = i) }
 
 private data class Dragging(val cell: Cell, val pos: Offset)
 
@@ -141,15 +142,15 @@ fun HomeScreen(
     val rolled = remember(categories, sums) { rollUp(categories, sums) }
     val tops = categories.filter { it.parentId == null }
     val incomeCells = tops.filter { it.kind == CategoryKind.INCOME }.map {
-        Cell(Node(NodeKind.INCOME, it.id), it.name, multi(rolled[it.id], precisions, compact = true), IncomeColor)
-    }
+        Cell(Node(NodeKind.INCOME, it.id), it.name, rolled[it.id]?.let { v -> multi(v, precisions, compact = true) }.orEmpty(), IncomeColor)
+    }.withInitials()
     val expenseTops = tops.filter { it.kind == CategoryKind.EXPENSE }
     val expenseCells = expenseTops.map {
-        Cell(Node(NodeKind.EXPENSE, it.id), it.name, multi(rolled[it.id], precisions, compact = true), ExpenseColor)
-    }
+        Cell(Node(NodeKind.EXPENSE, it.id), it.name, rolled[it.id]?.let { v -> multi(v, precisions, compact = true) }.orEmpty(), ExpenseColor)
+    }.withInitials()
     val accountCells = balances.inUserOrder().map {
         Cell(Node(NodeKind.ACCOUNT, it.accountId), it.name, "${fmt(it.balance, 0)} ${symbol(it.currencyCode)}", AccountColor, it.balance < 0)
-    }
+    }.withInitials()
 
     val balanceByCurrency = balances.groupBy { it.currencyCode }.mapValues { (_, v) -> v.sumOf { it.balance } }
     val expenseByCurrency = expenseTops.mapNotNull { rolled[it.id] }.flatMap { it.entries }
@@ -340,9 +341,25 @@ private fun Grid(
             IconButton(onClick = onAdd) { Icon(Icons.Filled.Add, addLabel) }
         }
     }
-    // Крупный системный шрифт — подпись в две строки (у всех, чтобы кружки ряда стояли ровно).
-    val labelLines = if (LocalDensity.current.fontScale > 1.3f) 2 else 1
-    for (row in cells.chunked(4)) {
+    // Подписи ряда в две строки, если хоть одно название из нескольких слов не влезает в одну (длинное
+    // название, крупный шрифт). Одно слово переносится только по слогам, а на это система не всегда
+    // способна, — такое слово остаётся в одну строку с «…», а не рвётся посередине.
+    // Высота подписи одна на ряд, текст прижат к кружку — кружки ряда стоят ровно.
+    val labelStyle = MaterialTheme.typography.labelMedium
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    // Ширина текста: экран − поля ряда 2×8dp, на 4 ячейки, − отступы подписи 2×4dp.
+    val textWidth = with(density) { ((LocalConfiguration.current.screenWidthDp.dp - 16.dp) / 4 - 8.dp).roundToPx() }
+    val labels = cells.map { it.label }
+    val lineHeight = remember(labelStyle, density) { with(density) { measurer.measure("Ag", labelStyle).size.height.toDp() } }
+    val twoLines = remember(labels, textWidth, labelStyle, density) {
+        val fits = Constraints(maxWidth = textWidth.coerceAtLeast(1))
+        labels.map { ' ' in it.trim() && measurer.measure(it, labelStyle, maxLines = 1, constraints = fits).hasVisualOverflow }
+            .chunked(4).map { row -> row.any { it } }
+    }
+    for ((r, row) in cells.chunked(4).withIndex()) {
+        val labelLines = if (twoLines.getOrElse(r) { false }) 2 else 1
+        val labelHeight = lineHeight * labelLines
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
             for (c in row) key(c.node) { // эффекты и bounds следуют за кружком, а не за позицией
                 Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
@@ -350,10 +367,12 @@ private fun Grid(
                         cellModifier(c).fillMaxWidth().padding(vertical = 6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text(
-                            c.label, style = MaterialTheme.typography.labelMedium, maxLines = labelLines, minLines = labelLines,
-                            overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 4.dp),
-                        )
+                        Box(Modifier.height(labelHeight).padding(horizontal = 4.dp), contentAlignment = Alignment.BottomCenter) {
+                            Text(
+                                c.label, style = labelStyle, maxLines = if (' ' in c.label.trim()) labelLines else 1,
+                                overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                            )
+                        }
                         Circle(c, Modifier.padding(4.dp), highlighted = c.node == hover)
                         Text(
                             c.amount,
@@ -387,7 +406,7 @@ private fun Circle(cell: Cell, modifier: Modifier = Modifier, highlighted: Boole
     ) {
         // Инициалы — картинка, TalkBack читает полное имя из подписи.
         Text(
-            initials(cell.label), color = onCircle(cell.color), style = MaterialTheme.typography.titleMedium,
+            cell.initials, color = onCircle(cell.color), style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.clearAndSetSemantics {},
         )
     }
