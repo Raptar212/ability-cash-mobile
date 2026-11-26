@@ -142,11 +142,11 @@ fun HomeScreen(
     val rolled = remember(categories, sums) { rollUp(categories, sums) }
     val tops = categories.filter { it.parentId == null }
     val incomeCells = tops.filter { it.kind == CategoryKind.INCOME }.map {
-        Cell(Node(NodeKind.INCOME, it.id), it.name, rolled[it.id]?.let { v -> multi(v, precisions, compact = true) }.orEmpty(), IncomeColor)
+        Cell(Node(NodeKind.INCOME, it.id), it.name, multi(rolled[it.id], precisions, compact = true), IncomeColor)
     }.withInitials()
     val expenseTops = tops.filter { it.kind == CategoryKind.EXPENSE }
     val expenseCells = expenseTops.map {
-        Cell(Node(NodeKind.EXPENSE, it.id), it.name, rolled[it.id]?.let { v -> multi(v, precisions, compact = true) }.orEmpty(), ExpenseColor)
+        Cell(Node(NodeKind.EXPENSE, it.id), it.name, multi(rolled[it.id], precisions, compact = true), ExpenseColor)
     }.withInitials()
     val accountCells = balances.inUserOrder().map {
         Cell(Node(NodeKind.ACCOUNT, it.accountId), it.name, "${fmt(it.balance, 0)} ${symbol(it.currencyCode)}", AccountColor, it.balance < 0)
