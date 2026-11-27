@@ -9,3 +9,6 @@ CoinKeeper_export*.csv
 # IDE
 .idea/
 *.bundle
+
+# Python
+__pycache__/
