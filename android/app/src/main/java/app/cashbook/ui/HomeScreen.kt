@@ -11,13 +11,12 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -35,7 +34,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -93,7 +91,7 @@ val AccountColor = Color(0xFFF2A900)
 val ExpenseColor = Color(0xFF00796B)
 
 /** Инициалы на кружке: на жёлтом счёте — тёмные (белые на жёлтом не читаются). */
-private fun onCircle(color: Color) = if (color == AccountColor) Color(0xFF3D2A00) else Color.White
+fun onCircle(color: Color) = if (color == AccountColor) Color(0xFF3D2A00) else Color.White
 
 private val BubbleSize = 56.dp
 
@@ -326,22 +324,25 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onSettings) { Icon(Icons.Filled.Menu, "Настройки") }
-                    // Баланс и расходы — заголовки на одной линии (сверху), между ними разделитель.
-                    Row(Modifier.weight(1f).height(IntrinsicSize.Min), verticalAlignment = Alignment.Top) {
-                        HeaderValue("Баланс", multi(balanceByCurrency, precisions, compact = false, sep = "\n"), Modifier.weight(1f))
-                        VerticalDivider(Modifier.fillMaxHeight().padding(horizontal = 12.dp))
-                        // Плашка расходов — вход в ленту операций по месяцам (вместо значка календаря).
-                        // Под месяцем — день: вход в ленту всех операций за сегодня.
-                        Column(Modifier.weight(1f)) {
+                    // Баланс — главная цифра; под ним расходы за месяц и за день помельче — входы в ленты.
+                    Column(Modifier.weight(1f)) {
+                        Text("Баланс", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            multi(balanceByCurrency, precisions, compact = false, sep = "\n"),
+                            style = MaterialTheme.typography.headlineMedium, maxLines = 4, overflow = TextOverflow.Ellipsis,
+                        )
+                        Row(Modifier.padding(top = 8.dp)) {
+                            // Плашка расходов — вход в ленту операций по месяцам (вместо значка календаря).
                             HeaderValue(
                                 "Расходы за месяц",
                                 multi(expenseByCurrency, precisions, compact = false, sep = "\n"),
-                                Modifier.fillMaxWidth().clickable(onClickLabel = "Операции за месяц", role = Role.Button, onClick = onOperations),
+                                Modifier.weight(1f).heightIn(min = 48.dp) // палец не промахивается
+                                    .clickable(onClickLabel = "Операции за месяц", role = Role.Button, onClick = onOperations),
                             )
                             HeaderValue(
                                 "Расходы за день",
                                 multi(dayExpenseByCurrency, precisions, compact = false, sep = "\n"),
-                                Modifier.fillMaxWidth().padding(top = 4.dp)
+                                Modifier.weight(1f).heightIn(min = 48.dp)
                                     .clickable(onClickLabel = "Операции за сегодня", role = Role.Button) { onToday(today) }, // тот же день, что в сумме
                             )
                         }

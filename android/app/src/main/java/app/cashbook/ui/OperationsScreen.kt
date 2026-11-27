@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -135,6 +136,14 @@ fun OperationsScreen(
 
     fun accountName(id: Long?) = id?.let { accountById[it]?.name } ?: "?"
 
+    // Инициалы кружков — те же, что на главном: считаются по ряду верхних статей своего вида.
+    val initialsByTop = remember(categories) {
+        categories.filter { it.parentId == null }.groupBy { it.kind }.values
+            .flatMap { tops -> tops.map { it.id }.zip(circleInitials(tops.map { it.name })) }.toMap()
+    }
+
+    fun initials(id: Long?) = id?.let { initialsByTop[topCategory(catById, it)] } ?: "—"
+
     fun accountColor(id: Long?) = id?.let { accountById[it] }?.let { Color(accountArgb(it.id, it.color)) }
 
     Scaffold(
@@ -182,7 +191,7 @@ fun OperationsScreen(
                     }
                 }
                 items(day.operations, key = { it.id }) { op ->
-                    OperationRow(op, ::categoryLabel, ::accountName, ::accountColor, ::money) { onOpen(op.id) }
+                    OperationRow(op, ::categoryLabel, ::initials, ::accountName, ::accountColor, ::money) { onOpen(op.id) }
                     HorizontalDivider()
                 }
             }
@@ -194,6 +203,7 @@ fun OperationsScreen(
 private fun OperationRow(
     op: Operation,
     categoryLabel: (Long?) -> String,
+    initials: (Long?) -> String,
     accountName: (Long?) -> String,
     accountColor: (Long?) -> Color?,
     money: (Long?, Long?) -> String,
@@ -229,7 +239,7 @@ private fun OperationRow(
         }
     }
     val color = when (type) {
-        OperationType.EXPENSE -> MaterialTheme.colorScheme.onSurface
+        OperationType.EXPENSE -> MaterialTheme.colorScheme.error
         OperationType.INCOME -> incomeColor()
         OperationType.TRANSFER -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -238,6 +248,20 @@ private fun OperationRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Кружок статьи — как на главном (цвет вида, инициалы); перевод — стрелка на цвете счетов.
+        // Картинка: TalkBack читает название из строки.
+        val circle = when (type) {
+            OperationType.EXPENSE -> ExpenseColor
+            OperationType.INCOME -> IncomeColor
+            OperationType.TRANSFER -> AccountColor
+        }
+        Box(Modifier.size(36.dp).background(circle, CircleShape).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+            if (type == OperationType.TRANSFER) {
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = onCircle(circle), modifier = Modifier.size(20.dp))
+            } else {
+                Text(initials(op.categoryId), color = onCircle(circle), style = MaterialTheme.typography.labelLarge)
+            }
+        }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = buildAnnotatedString {
