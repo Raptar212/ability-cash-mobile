@@ -50,6 +50,8 @@ data class Category(
     val kind: CategoryKind,
     val comment: String = "",
     val deleted: Boolean = false,
+    /** Слаг иконки (`CATEGORY_ICON_PATHS`) у верхней статьи; null — не выбрана, на кружке инициалы. */
+    val icon: String? = null,
 )
 
 /**

@@ -15,11 +15,12 @@ import org.json.JSONObject
 
 @Database(
     entities = [Currency::class, Account::class, Category::class, Operation::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), // + operations.baseAmount
         AutoMigration(from = 2, to = 3), // + accounts.color
+        AutoMigration(from = 3, to = 4), // + categories.icon
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

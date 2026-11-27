@@ -1,7 +1,9 @@
 package app.cashbook.ui
 
 import android.os.SystemClock
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,13 +11,12 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,7 +34,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -47,10 +47,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
@@ -58,6 +60,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.lerp
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -75,16 +79,20 @@ import app.cashbook.data.Category
 import app.cashbook.data.CategoryKind
 import app.cashbook.data.Money
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import kotlin.math.PI
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 val IncomeColor = Color(0xFF3F51B5)
 val AccountColor = Color(0xFFF2A900)
 val ExpenseColor = Color(0xFF00796B)
 
 /** Инициалы на кружке: на жёлтом счёте — тёмные (белые на жёлтом не читаются). */
-private fun onCircle(color: Color) = if (color == AccountColor) Color(0xFF3D2A00) else Color.White
+fun onCircle(color: Color) = if (color == AccountColor) Color(0xFF3D2A00) else Color.White
 
 private val BubbleSize = 56.dp
 
@@ -111,12 +119,19 @@ fun multi(sums: Map<String, Long>?, precisions: Map<String, Int>, compact: Boole
 private data class Cell(
     val node: Node, val label: String, val amount: String, val color: Color,
     val negative: Boolean = false, val initials: String = "",
+    val icon: ImageVector? = null, // иконка статьи; null — инициалы
 )
 
 /** Инициалы ряда — уникальные в ряду ([circleInitials]). */
 private fun List<Cell>.withInitials() = zip(circleInitials(map { it.label })) { c, i -> c.copy(initials = i) }
 
 private data class Dragging(val cell: Cell, val pos: Offset)
+
+/** Принятый бросок: кружок [cell] летит из [start] в центр цели [end] (координаты корня), затем onDrop. */
+private data class Absorb(val cell: Cell, val start: Offset, val end: Offset, val from: Node, val to: Node)
+
+/** Горб 0→1→0 по фазе анимации 0..1 — пульс и подсветка суммы. */
+private fun bump(phase: Float) = sin(PI * phase).toFloat()
 
 @Composable
 fun HomeScreen(
@@ -128,6 +143,8 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onOperations: () -> Unit,
     onToday: (epochDay: Long) -> Unit,
+    pulse: Set<Node> = emptySet(),
+    onPulsed: () -> Unit = {},
 ) {
     var newCategory by remember { mutableStateOf<CategoryKind?>(null) } // «+» в заголовке «Доходы»/«Расходы»
     val month = remember {
@@ -145,11 +162,11 @@ fun HomeScreen(
     val rolled = remember(categories, sums) { rollUp(categories, sums) }
     val tops = categories.filter { it.parentId == null }
     val incomeCells = tops.filter { it.kind == CategoryKind.INCOME }.map {
-        Cell(Node(NodeKind.INCOME, it.id), it.name, multi(rolled[it.id], precisions, compact = true), IncomeColor)
+        Cell(Node(NodeKind.INCOME, it.id), it.name, multi(rolled[it.id], precisions, compact = true), IncomeColor, icon = categoryIcon(it.icon))
     }.withInitials()
     val expenseTops = tops.filter { it.kind == CategoryKind.EXPENSE }
     val expenseCells = expenseTops.map {
-        Cell(Node(NodeKind.EXPENSE, it.id), it.name, multi(rolled[it.id], precisions, compact = true), ExpenseColor)
+        Cell(Node(NodeKind.EXPENSE, it.id), it.name, multi(rolled[it.id], precisions, compact = true), ExpenseColor, icon = categoryIcon(it.icon))
     }.withInitials()
     val accountCells = balances.inUserOrder().map {
         Cell(Node(NodeKind.ACCOUNT, it.accountId), it.name, "${fmt(it.balance, 0)} ${symbol(it.currencyCode)}", AccountColor, it.balance < 0)
@@ -166,7 +183,10 @@ fun HomeScreen(
     var drag by remember { mutableStateOf<Dragging?>(null) }
     // Конец перетаскивания (uptime): отпускание после перетаскивания — не клик по кружку.
     var dragEndedAt by remember { mutableStateOf(0L) }
-    fun clickAllowed() = drag == null && SystemClock.uptimeMillis() - dragEndedAt > 300
+    // Бросок принят — кружок «втягивается» в цель (~200 мс), только потом ввод суммы.
+    var absorbing by remember { mutableStateOf<Absorb?>(null) }
+    val absorb = remember { Animatable(0f) }
+    fun clickAllowed() = drag == null && absorbing == null && SystemClock.uptimeMillis() - dragEndedAt > 300
     var origin by remember { mutableStateOf(Offset.Zero) }
     var visible by remember { mutableStateOf(Rect.Zero) } // видимая область рядов (без шапки)
     val currentOnDrop by rememberUpdatedState(onDrop)
@@ -205,6 +225,33 @@ fun HomeScreen(
     val haptic = LocalHapticFeedback.current
     LaunchedEffect(hover) { if (hover != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
 
+    // Ушли с экрана посреди полёта — эффект отменён, onDrop не вызывается: бросок не удвоится.
+    LaunchedEffect(absorbing) {
+        val a = absorbing ?: return@LaunchedEffect
+        absorb.snapTo(0f)
+        absorb.animateTo(1f, tween(200))
+        absorb.snapTo(0f) // иначе следующий бросок кадр рисуется уже «втянутым»
+        absorbing = null
+        currentOnDrop(a.from, a.to)
+    }
+
+    // Только что записанная операция: её кружки один раз пульсируют, суммы под ними подсвечены.
+    val pulseAnim = remember { Animatable(0f) }
+    val currentOnPulsed by rememberUpdatedState(onPulsed)
+    LaunchedEffect(pulse) {
+        if (pulse.isEmpty()) return@LaunchedEffect
+        // После возврата ряды ещё грузятся — ждём кружки (статью могли удалить — не дольше секунды).
+        withTimeoutOrNull(1000) { snapshotFlow { pulse.all { it in bounds } }.first { it } }
+        // Ушли с экрана посреди пульса — всё равно сбросить, иначе он сыграет при следующем возврате.
+        try {
+            pulseAnim.snapTo(0f)
+            pulseAnim.animateTo(1f, tween(600))
+            pulseAnim.snapTo(0f)
+        } finally {
+            currentOnPulsed()
+        }
+    }
+
     // Тап по статье дохода — операция со счётом последней такой операции (нет — первый счёт).
     val scope = rememberCoroutineScope()
     fun tapCategory(node: Node) = scope.launch {
@@ -227,7 +274,7 @@ fun HomeScreen(
             .then(if (node.kind == NodeKind.EXPENSE) Modifier else Modifier.pointerInput(node) {
                 detectDragGestures(
                     onDragStart = { p ->
-                        bounds[node]?.let {
+                        if (absorbing == null) bounds[node]?.let {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             drag = Dragging(currentCell, it.topLeft + p)
                         }
@@ -242,8 +289,11 @@ fun HomeScreen(
                         drag = null
                         // Палец над шапкой — кружки, прокрученные под неё, не цели.
                         if (d != null && visible.contains(d.pos)) {
-                            val target = bounds.entries.firstOrNull { it.key != node && it.value.contains(d.pos) }?.key
-                            if (target != null && dropType(node, target) != null) currentOnDrop(node, target)
+                            val hit = bounds.entries.firstOrNull { it.key != node && it.value.contains(d.pos) }
+                            if (hit != null && dropType(node, hit.key) != null) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                absorbing = Absorb(d.cell, d.pos, hit.value.center, node, hit.key)
+                            }
                         }
                     },
                     onDragCancel = {
@@ -276,22 +326,25 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onSettings) { Icon(Icons.Filled.Menu, "Настройки") }
-                    // Баланс и расходы — заголовки на одной линии (сверху), между ними разделитель.
-                    Row(Modifier.weight(1f).height(IntrinsicSize.Min), verticalAlignment = Alignment.Top) {
-                        HeaderValue("Баланс", multi(balanceByCurrency, precisions, compact = false, sep = "\n"), Modifier.weight(1f))
-                        VerticalDivider(Modifier.fillMaxHeight().padding(horizontal = 12.dp))
-                        // Плашка расходов — вход в ленту операций по месяцам (вместо значка календаря).
-                        // Под месяцем — день: вход в ленту всех операций за сегодня.
-                        Column(Modifier.weight(1f)) {
+                    // Баланс — главная цифра; под ним расходы за месяц и за день помельче — входы в ленты.
+                    Column(Modifier.weight(1f)) {
+                        Text("Баланс", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            multi(balanceByCurrency, precisions, compact = false, sep = "\n"),
+                            style = MaterialTheme.typography.headlineMedium, maxLines = 4, overflow = TextOverflow.Ellipsis,
+                        )
+                        Row(Modifier.padding(top = 8.dp)) {
+                            // Плашка расходов — вход в ленту операций по месяцам (вместо значка календаря).
                             HeaderValue(
                                 "Расходы за месяц",
                                 multi(expenseByCurrency, precisions, compact = false, sep = "\n"),
-                                Modifier.fillMaxWidth().clickable(onClickLabel = "Операции за месяц", role = Role.Button, onClick = onOperations),
+                                Modifier.weight(1f).heightIn(min = 48.dp) // палец не промахивается
+                                    .clickable(onClickLabel = "Операции за месяц", role = Role.Button, onClick = onOperations),
                             )
                             HeaderValue(
                                 "Расходы за день",
                                 multi(dayExpenseByCurrency, precisions, compact = false, sep = "\n"),
-                                Modifier.fillMaxWidth().padding(top = 4.dp)
+                                Modifier.weight(1f).heightIn(min = 48.dp)
                                     .clickable(onClickLabel = "Операции за сегодня", role = Role.Button) { onToday(today) }, // тот же день, что в сумме
                             )
                         }
@@ -306,10 +359,29 @@ fun HomeScreen(
                 visible = it.boundsInRoot()
             },
         ) {
+            // Цель подсвечена и пока в неё «втягивается» брошенный кружок.
+            val target = hover ?: absorbing?.to
+            val pulsePhase = { pulseAnim.value }
             Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
-                Grid("Доходы", incomeCells, hover, onAdd = { newCategory = CategoryKind.INCOME }) { cellModifier(it) }
-                Grid("Счета", accountCells, hover, onAdd = onNewAccount, addLabel = "Новый счёт") { cellModifier(it) }
-                Grid("Расходы", expenseCells, hover, onAdd = { newCategory = CategoryKind.EXPENSE }) { cellModifier(it) }
+                Grid("Доходы", incomeCells, target, pulse, pulsePhase, onAdd = { newCategory = CategoryKind.INCOME }) { cellModifier(it) }
+                Grid("Счета", accountCells, target, pulse, pulsePhase, onAdd = onNewAccount, addLabel = "Новый счёт") { cellModifier(it) }
+                Grid("Расходы", expenseCells, target, pulse, pulsePhase, onAdd = { newCategory = CategoryKind.EXPENSE }) { cellModifier(it) }
+            }
+            absorbing?.let { a ->
+                Circle(
+                    a.cell,
+                    Modifier
+                        .offset {
+                            val p = lerp(a.start, a.end, absorb.value)
+                            IntOffset((p.x - origin.x - half).roundToInt(), (p.y - origin.y - half).roundToInt())
+                        }
+                        .graphicsLayer {
+                            val t = absorb.value
+                            scaleX = 1f - 0.7f * t
+                            scaleY = 1f - 0.7f * t
+                            alpha = 1f - t
+                        },
+                )
             }
             dragCell?.let { cell ->
                 Circle(
@@ -345,6 +417,8 @@ private fun Grid(
     title: String,
     cells: List<Cell>,
     hover: Node?,
+    pulse: Set<Node>,
+    pulsePhase: () -> Float,
     onAdd: (() -> Unit)? = null,
     addLabel: String = "Новая статья: $title",
     cellModifier: @Composable (Cell) -> Modifier,
@@ -387,11 +461,14 @@ private fun Grid(
                                 overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
                             )
                         }
-                        Circle(c, Modifier.padding(4.dp), highlighted = c.node == hover)
+                        val pulsing = c.node in pulse
+                        Circle(c, Modifier.padding(4.dp), highlighted = c.node == hover, pulse = if (pulsing) pulsePhase else null)
+                        val amountColor = if (c.negative) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                         Text(
                             c.amount,
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (c.negative) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            // Фаза читается в композиции: ряд перерисуется ~600 мс раз за пульс — приемлемо.
+                            color = if (pulsing) lerp(amountColor, MaterialTheme.colorScheme.primary, bump(pulsePhase())) else amountColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 2.dp),
@@ -405,23 +482,34 @@ private fun Grid(
     HorizontalDivider(Modifier.padding(top = 8.dp))
 }
 
-/** [highlighted] — цель под пальцем при перетаскивании: крупнее и с обводкой. */
+/**
+ * [highlighted] — цель под пальцем при перетаскивании: крупнее и с обводкой. [pulse] — фаза 0..1
+ * пульса после записи операции (читается при отрисовке, без перекомпозиции).
+ */
 @Composable
-private fun Circle(cell: Cell, modifier: Modifier = Modifier, highlighted: Boolean = false) {
+private fun Circle(cell: Cell, modifier: Modifier = Modifier, highlighted: Boolean = false, pulse: (() -> Float)? = null) {
     val scale by animateFloatAsState(if (highlighted) 1.18f else 1f, label = "drop-target")
     Box(
         modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .graphicsLayer {
+                val s = scale * (1f + 0.15f * (pulse?.let { bump(it()) } ?: 0f))
+                scaleX = s
+                scaleY = s
+            }
             .size(BubbleSize)
             .then(if (highlighted) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape) else Modifier)
             .clip(CircleShape)
             .background(cell.color),
         contentAlignment = Alignment.Center,
     ) {
-        // Инициалы — картинка, TalkBack читает полное имя из подписи.
-        Text(
-            cell.initials, color = onCircle(cell.color), style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.clearAndSetSemantics {},
-        )
+        // Иконка или инициалы — картинка, TalkBack читает полное имя из подписи.
+        if (cell.icon != null) {
+            Icon(cell.icon, null, tint = onCircle(cell.color), modifier = Modifier.size(28.dp))
+        } else {
+            Text(
+                cell.initials, color = onCircle(cell.color), style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.clearAndSetSemantics {},
+            )
+        }
     }
 }

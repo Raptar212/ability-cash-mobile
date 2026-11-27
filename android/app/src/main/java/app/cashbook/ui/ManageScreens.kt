@@ -1,7 +1,23 @@
 package app.cashbook.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -63,6 +79,7 @@ fun CategoriesScreen(dao: CashDao, initialKind: CategoryKind, onBack: () -> Unit
     var kind by rememberSaveable { mutableStateOf(initialKind) }
     var chosen by remember { mutableStateOf<Category?>(null) } // меню действий
     var edit by remember { mutableStateOf<CategoryEdit?>(null) }
+    var iconFor by remember { mutableStateOf<Category?>(null) } // выбор иконки верхней статьи
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -106,6 +123,8 @@ fun CategoriesScreen(dao: CashDao, initialKind: CategoryKind, onBack: () -> Unit
                                 Text("› ${c.name}", style = MaterialTheme.typography.bodyLarge)
                             }
                         },
+                        // Иконка — у верхней статьи (её кружок на главном); подстатьи без неё.
+                        leadingContent = categoryIcon(c.icon)?.takeIf { depth == 0 }?.let { { Icon(it, null) } },
                         modifier = Modifier.clickable { chosen = c }.padding(start = (depth * 24).dp),
                     )
                     HorizontalDivider()
@@ -121,6 +140,9 @@ fun CategoriesScreen(dao: CashDao, initialKind: CategoryKind, onBack: () -> Unit
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { chosen = null; edit = CategoryEdit.Rename(c) }, Modifier.fillMaxWidth()) { Text("Переименовать") }
+                    if (c.parentId == null) {
+                        OutlinedButton(onClick = { chosen = null; iconFor = c }, Modifier.fillMaxWidth()) { Text("Иконка") }
+                    }
                     OutlinedButton(onClick = { chosen = null; edit = CategoryEdit.New(c) }, Modifier.fillMaxWidth()) { Text("Добавить подстатью") }
                     OutlinedButton(
                         onClick = {
@@ -142,6 +164,40 @@ fun CategoriesScreen(dao: CashDao, initialKind: CategoryKind, onBack: () -> Unit
             },
             confirmButton = {},
             dismissButton = { TextButton(onClick = { chosen = null }) { Text("Закрыть") } },
+        )
+    }
+
+    // Выбор иконки: кружки цвета вида, как на главном; тап — сохранить сразу.
+    iconFor?.let { c ->
+        val color = if (c.kind == CategoryKind.EXPENSE) ExpenseColor else IncomeColor
+        fun save(slug: String?) {
+            iconFor = null
+            run { dao.setCategoryIcon(c.id, slug) }
+        }
+        AlertDialog(
+            onDismissRequest = { iconFor = null },
+            title = { Text("Иконка: ${c.name}") },
+            text = {
+                LazyVerticalGrid(GridCells.Adaptive(56.dp), Modifier.heightIn(max = 360.dp)) {
+                    gridItems(CATEGORY_ICON_PATHS.keys.toList()) { slug ->
+                        val selected = slug == c.icon
+                        Box(
+                            // wrapContentSize: ячейка сетки шире 48dp — кружок не растягивается в «таблетку».
+                            Modifier.padding(4.dp).wrapContentSize().size(48.dp)
+                                .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape) else Modifier)
+                                .clip(CircleShape).background(color)
+                                // Переключатель: TalkBack говорит название, «выбрано» и что это выбор.
+                                .selectable(selected, role = Role.RadioButton) { save(slug) }
+                                .semantics { contentDescription = CATEGORY_ICON_NAMES[slug] ?: slug },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            categoryIcon(slug)?.let { Icon(it, null, tint = onCircle(color), modifier = Modifier.size(26.dp)) }
+                        }
+                    }
+                }
+            },
+            confirmButton = { if (c.icon != null) TextButton(onClick = { save(null) }) { Text("Без иконки") } },
+            dismissButton = { TextButton(onClick = { iconFor = null }) { Text("Отмена") } },
         )
     }
 

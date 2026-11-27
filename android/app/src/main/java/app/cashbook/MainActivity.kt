@@ -157,10 +157,14 @@ class MainActivity : ComponentActivity() {
                 // «Расход 120 ₴ · Отменить» после записи новой операции: id и текст.
                 val snackbar = remember { SnackbarHostState() }
                 var undo by remember { mutableStateOf<Pair<Long, String>?>(null) }
+                var pulse by remember { mutableStateOf<Set<Node>>(emptySet()) } // кружки только что записанной операции
                 LaunchedEffect(undo, dao) { // dao — новый после восстановления копии
                     val (id, text) = undo ?: return@LaunchedEffect
                     val result = snackbar.showSnackbar(text, actionLabel = "Отменить", duration = SnackbarDuration.Short)
-                    if (result == SnackbarResult.ActionPerformed) dao.operation(id)?.let { dao.deleteOperation(it) }
+                    if (result == SnackbarResult.ActionPerformed) {
+                        pulse = emptySet()
+                        dao.operation(id)?.let { dao.deleteOperation(it) }
+                    }
                     undo = null
                 }
 
@@ -314,6 +318,7 @@ class MainActivity : ComponentActivity() {
                         val (from, to) = decodeDrop(operation)
                         OperationScreen(dao, from, to, onDone = { drop = null }, onSaved = { id, text ->
                             undo = id to text
+                            pulse = setOf(from, to)
                             listState.requestScrollToItem(0) // новая операция — наверху ленты, иначе кажется, что не добавилась
                         })
                     }
@@ -450,6 +455,8 @@ class MainActivity : ComponentActivity() {
                             listMonth = YearMonth.from(LocalDate.ofEpochDay(day)).toString()
                             listState.requestScrollToItem(0)
                         },
+                        pulse = pulse,
+                        onPulsed = { pulse = emptySet() },
                     )
                 }
 

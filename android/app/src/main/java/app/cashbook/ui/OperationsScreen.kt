@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -135,6 +138,16 @@ fun OperationsScreen(
 
     fun accountName(id: Long?) = id?.let { accountById[it]?.name } ?: "?"
 
+    // Инициалы кружков — те же, что на главном: считаются по ряду верхних статей своего вида.
+    val initialsByTop = remember(categories) {
+        categories.filter { it.parentId == null }.groupBy { it.kind }.values
+            .flatMap { tops -> tops.map { it.id }.zip(circleInitials(tops.map { it.name })) }.toMap()
+    }
+
+    fun initials(id: Long?) = id?.let { initialsByTop[topCategory(catById, it)] } ?: "—"
+
+    fun icon(id: Long?) = id?.let { catById[topCategory(catById, it)]?.icon }?.let(::categoryIcon)
+
     fun accountColor(id: Long?) = id?.let { accountById[it] }?.let { Color(accountArgb(it.id, it.color)) }
 
     Scaffold(
@@ -156,7 +169,13 @@ fun OperationsScreen(
         // До загрузки список не рисуем: пустой LazyColumn сбросил бы прокрутку при возврате из правки.
         if (ops == null) return@Scaffold
         if (days.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) { Text("Операций нет") }
+            val hint = when (filter) {
+                OpsFilter.All -> "Перетащите счёт на статью на главном экране — трата появится здесь."
+                is OpsFilter.Account -> "Операций по счёту в этом месяце нет. «+» вверху — новый расход."
+                is OpsFilter.Category -> "Трат по статье в этом месяце нет. «+» вверху — новый расход."
+                is OpsFilter.Day -> "В этот день операций нет. Перетащите счёт на статью на главном экране."
+            }
+            EmptyState("Операций нет", hint, Modifier.padding(padding).fillMaxSize())
             return@Scaffold
         }
         LazyColumn(Modifier.padding(padding).fillMaxSize(), state = listState) {
@@ -182,7 +201,7 @@ fun OperationsScreen(
                     }
                 }
                 items(day.operations, key = { it.id }) { op ->
-                    OperationRow(op, ::categoryLabel, ::accountName, ::accountColor, ::money) { onOpen(op.id) }
+                    OperationRow(op, ::categoryLabel, ::initials, ::icon, ::accountName, ::accountColor, ::money) { onOpen(op.id) }
                     HorizontalDivider()
                 }
             }
@@ -190,10 +209,28 @@ fun OperationsScreen(
     }
 }
 
+/** Пустой экран: значок, что пусто, и подсказка, что сделать. */
+@Composable
+fun EmptyState(title: String, hint: String, modifier: Modifier = Modifier) {
+    Column(modifier.padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            Icons.AutoMirrored.Filled.List, null, tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(48.dp),
+        )
+        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+        Text(
+            hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
 @Composable
 private fun OperationRow(
     op: Operation,
     categoryLabel: (Long?) -> String,
+    initials: (Long?) -> String,
+    icon: (Long?) -> ImageVector?,
     accountName: (Long?) -> String,
     accountColor: (Long?) -> Color?,
     money: (Long?, Long?) -> String,
@@ -229,7 +266,7 @@ private fun OperationRow(
         }
     }
     val color = when (type) {
-        OperationType.EXPENSE -> MaterialTheme.colorScheme.onSurface
+        OperationType.EXPENSE -> MaterialTheme.colorScheme.error
         OperationType.INCOME -> incomeColor()
         OperationType.TRANSFER -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -238,6 +275,23 @@ private fun OperationRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Кружок статьи — как на главном (цвет вида, инициалы); перевод — стрелка на цвете счетов.
+        // Картинка: TalkBack читает название из строки.
+        val circle = when (type) {
+            OperationType.EXPENSE -> ExpenseColor
+            OperationType.INCOME -> IncomeColor
+            OperationType.TRANSFER -> AccountColor
+        }
+        Box(Modifier.size(36.dp).background(circle, CircleShape).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+            val catIcon = if (type == OperationType.TRANSFER) null else icon(op.categoryId)
+            if (type == OperationType.TRANSFER) {
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = onCircle(circle), modifier = Modifier.size(20.dp))
+            } else if (catIcon != null) {
+                Icon(catIcon, null, tint = onCircle(circle), modifier = Modifier.size(20.dp))
+            } else {
+                Text(initials(op.categoryId), color = onCircle(circle), style = MaterialTheme.typography.labelLarge)
+            }
+        }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = buildAnnotatedString {
