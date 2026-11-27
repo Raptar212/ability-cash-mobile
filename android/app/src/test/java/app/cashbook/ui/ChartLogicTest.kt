@@ -81,8 +81,23 @@ class ChartLogicTest {
         )
         val bars = monthly(rows, YearMonth.of(2026, 11), "UAH")
         assertEquals(12, bars.size)
-        assertEquals(MonthBar(YearMonth.of(2025, 12), m("1"), 0), bars.first())
-        assertEquals(MonthBar(YearMonth.of(2026, 11), m("15"), m("100")), bars.last())
-        assertEquals(MonthBar(YearMonth.of(2026, 5), 0, 0), bars[5])
+        assertEquals(Bar(YearMonth.of(2025, 12), m("1"), 0), bars.first())
+        assertEquals(Bar(YearMonth.of(2026, 11), m("15"), m("100")), bars.last())
+        assertEquals(Bar(YearMonth.of(2026, 5), 0L, 0L), bars[5])
+    }
+
+    @Test fun yearlyFromFirstYearToNowPerCurrencyWithEmptyYears() {
+        fun d(s: String) = LocalDate.parse(s).toEpochDay()
+        val rows = listOf(
+            DaySum(d("2023-03-01"), true, "UAH", m("10")),
+            DaySum(d("2023-12-31"), false, "UAH", m("50")),
+            DaySum(d("2025-01-01"), true, "UAH", m("7")),
+            DaySum(d("2020-06-01"), true, "USD", m("9")), // другая валюта не раздвигает годы
+        )
+        assertEquals(
+            listOf(Bar(2023, m("10"), m("50")), Bar(2024, 0L, 0L), Bar(2025, m("7"), 0L), Bar(2026, 0L, 0L)),
+            yearly(rows, "UAH", now = 2026),
+        )
+        assertEquals(emptyList<Bar<Int>>(), yearly(rows, "EUR", now = 2026))
     }
 }

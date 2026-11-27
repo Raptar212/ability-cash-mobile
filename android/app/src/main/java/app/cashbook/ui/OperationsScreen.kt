@@ -337,22 +337,25 @@ fun EditOperationScreen(dao: CashDao, id: Long, onDone: () -> Unit) {
 
 /** Переключатель месяца — одинаковый в лентах и графиках: полоса под верхней панелью, месяц по центру. */
 @Composable
-fun MonthSwitcher(month: YearMonth, onChange: (YearMonth) -> Unit) {
+fun MonthSwitcher(month: YearMonth, onChange: (YearMonth) -> Unit) = Switcher(
+    month.format(DateTimeFormatter.ofPattern("LLLL yyyy", RU)).replaceFirstChar { it.titlecase(RU) },
+    "Предыдущий месяц", "Следующий месяц", onPrev = { onChange(month.minusMonths(1)) }, onNext = { onChange(month.plusMonths(1)) },
+)
+
+/** Полоса со стрелками и [title] по центру — основа [MonthSwitcher] и переключателя года в графиках. */
+@Composable
+fun Switcher(title: String, prevLabel: String, nextLabel: String, onPrev: () -> Unit, onNext: () -> Unit) {
     Surface(tonalElevation = 3.dp) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { onChange(month.minusMonths(1)) }) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Предыдущий месяц")
-            }
+            IconButton(onClick = onPrev) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, prevLabel) }
             Text(
-                month.format(DateTimeFormatter.ofPattern("LLLL yyyy", RU)).replaceFirstChar { it.titlecase(RU) },
+                title,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { onChange(month.plusMonths(1)) }) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Следующий месяц")
-            }
+            IconButton(onClick = onNext) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, nextLabel) }
         }
     }
 }

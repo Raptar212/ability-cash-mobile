@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -325,34 +327,35 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             Surface(tonalElevation = 3.dp) {
+                // Баланс и расходы за месяц/день — три равные колонки через разделитель; расходы — входы в ленты.
                 Row(
-                    Modifier.fillMaxWidth().statusBarsPadding().padding(end = 16.dp, top = 4.dp, bottom = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    Modifier.fillMaxWidth().statusBarsPadding().height(IntrinsicSize.Min)
+                        .padding(end = 16.dp, top = 4.dp, bottom = 12.dp),
                 ) {
                     IconButton(onClick = onSettings) { Icon(Icons.Filled.Menu, "Настройки") }
-                    // Баланс — главная цифра; под ним расходы за месяц и за день помельче — входы в ленты.
-                    Column(Modifier.weight(1f)) {
-                        Text("Баланс", style = MaterialTheme.typography.labelMedium)
-                        Text(
-                            multi(balanceByCurrency, precisions, compact = false, sep = "\n"),
-                            style = MaterialTheme.typography.headlineMedium, maxLines = 4, overflow = TextOverflow.Ellipsis,
-                        )
-                        Row(Modifier.padding(top = 8.dp)) {
-                            // Плашка расходов — вход в ленту операций по месяцам (вместо значка календаря).
-                            HeaderValue(
-                                "Расходы за месяц",
-                                multi(expenseByCurrency, precisions, compact = false, sep = "\n"),
-                                Modifier.weight(1f).heightIn(min = 48.dp) // палец не промахивается
-                                    .clickable(onClickLabel = "Операции за месяц", role = Role.Button, onClick = onOperations),
-                            )
-                            HeaderValue(
-                                "Расходы за день",
-                                multi(dayExpenseByCurrency, precisions, compact = false, sep = "\n"),
-                                Modifier.weight(1f).heightIn(min = 48.dp)
-                                    .clickable(onClickLabel = "Операции за сегодня", role = Role.Button) { onToday(today) }, // тот же день, что в сумме
-                            )
-                        }
-                    }
+                    HeaderValue(
+                        "Баланс",
+                        multi(balanceByCurrency, precisions, compact = false, sep = "\n"),
+                        Modifier.weight(1.3f).padding(top = 8.dp), // длиннее сумм расходов
+                        maxLines = 4,
+                    )
+                    VerticalDivider(Modifier.padding(horizontal = 8.dp))
+                    // Плашка расходов — вход в ленту операций по месяцам (вместо значка календаря).
+                    HeaderValue(
+                        "Расходы за месяц",
+                        multi(expenseByCurrency, precisions, compact = false, sep = "\n"),
+                        Modifier.weight(1f).heightIn(min = 48.dp) // палец не промахивается
+                            .clickable(onClickLabel = "Операции за месяц", role = Role.Button, onClick = onOperations)
+                            .padding(top = 8.dp),
+                    )
+                    VerticalDivider(Modifier.padding(horizontal = 8.dp))
+                    HeaderValue(
+                        "Расходы за день",
+                        multi(dayExpenseByCurrency, precisions, compact = false, sep = "\n"),
+                        Modifier.weight(1f).heightIn(min = 48.dp)
+                            .clickable(onClickLabel = "Операции за сегодня", role = Role.Button) { onToday(today) } // тот же день, что в сумме
+                            .padding(top = 8.dp),
+                    )
                 }
             }
         },
@@ -408,10 +411,10 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HeaderValue(title: String, value: String, modifier: Modifier) {
+private fun HeaderValue(title: String, value: String, modifier: Modifier, maxLines: Int = 3) {
     Column(modifier) {
         Text(title, style = MaterialTheme.typography.labelMedium)
-        Text(value, style = MaterialTheme.typography.titleMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Text(value, style = MaterialTheme.typography.titleMedium, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
     }
 }
 

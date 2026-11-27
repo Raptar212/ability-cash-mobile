@@ -84,24 +84,43 @@ private val OTHER_COLOR = Color(0xFF9E9E9E)
 private fun monthTitle(m: YearMonth, pattern: String) =
     m.format(DateTimeFormatter.ofPattern(pattern, RU)).replaceFirstChar { it.titlecase(RU) }
 
-/** Графики: круг по статьям за месяц и столбики расходов/доходов за 12 месяцев. */
+/**
+ * Графики за месяц, год или всё время: круг по статьям за период и столбики расходов/доходов —
+ * 12 месяцев до выбранного, месяцы года или годы.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
     var monthText by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
+    var periodName by rememberSaveable { mutableStateOf(Period.MONTH.name) }
     var code by rememberSaveable { mutableStateOf<String?>(null) }
     var expense by rememberSaveable { mutableStateOf(true) }
     var parent by rememberSaveable { mutableStateOf<Long?>(null) }
     val month = YearMonth.parse(monthText)
+    val period = Period.valueOf(periodName)
+    fun show(p: Period, m: YearMonth = month) {
+        periodName = p.name
+        monthText = m.toString()
+        parent = null
+    }
+
+    // Диапазон круга (дни эпохи); у «всего времени» — без границ. Столбики месяца — 12 месяцев до него.
+    val year = month.withMonth(1)
+    val range = when (period) {
+        Period.MONTH -> month.atDay(1).toEpochDay() to month.atEndOfMonth().toEpochDay()
+        Period.YEAR -> year.atDay(1).toEpochDay() to year.plusMonths(11).atEndOfMonth().toEpochDay()
+        Period.ALL -> Long.MIN_VALUE to Long.MAX_VALUE
+    }
+    val barsRange = if (period == Period.MONTH) month.minusMonths(11).atDay(1).toEpochDay() to range.second else range
 
     val currencies by remember { dao.currencies() }.collectAsState(initial = emptyList())
     val categories by remember { dao.allCategories() }.collectAsState(initial = emptyList())
-    // Данные помнят свой месяц: при листании чужой месяц не показывается ни кадра.
-    val sums by produceState<Pair<YearMonth, List<CategorySum>>?>(null, month) {
-        dao.categorySums(month.atDay(1).toEpochDay(), month.atEndOfMonth().toEpochDay()).collect { value = month to it }
+    // Данные помнят свой диапазон: при листании чужой период не показывается ни кадра.
+    val sums by produceState<Pair<Pair<Long, Long>, List<CategorySum>>?>(null, range) {
+        dao.categorySums(range.first, range.second).collect { value = range to it }
     }
-    val days by produceState<Pair<YearMonth, List<DaySum>>?>(null, month) {
-        dao.daySums(month.minusMonths(11).atDay(1).toEpochDay(), month.atEndOfMonth().toEpochDay()).collect { value = month to it }
+    val days by produceState<Pair<Pair<Long, Long>, List<DaySum>>?>(null, barsRange) {
+        dao.daySums(barsRange.first, barsRange.second).collect { value = barsRange to it }
     }
 
     BackHandler(enabled = parent != null) { parent = null }
@@ -110,13 +129,18 @@ fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
     val precision = currencies.firstOrNull { it.code == cur }?.precision ?: 2
     fun money(v: Long) = "${fmt(v, precision)} ${symbol(cur.orEmpty())}"
     val kind = if (expense) CategoryKind.EXPENSE else CategoryKind.INCOME
-    val monthSums = sums?.takeIf { it.first == month }?.second
+    val monthSums = sums?.takeIf { it.first == range }?.second
     val all = if (monthSums == null || cur == null) emptyList() else slices(categories, monthSums, kind, cur, parent)
     val pie = fold(all)
     val total = all.sumOf { it.amount }
     // Сколько строк легенды имеют свой цвет: при свёртке в «Другое» остальные — серые.
     val colored = if (pie.lastOrNull()?.id == null) pie.size - 1 else pie.size
-    val bars = days?.takeIf { it.first == month }?.second?.let { if (cur == null) null else monthly(it, month, cur) }
+    val dayRows = days?.takeIf { it.first == barsRange }?.second?.takeIf { cur != null }
+    val periodTitle = when (period) {
+        Period.MONTH -> monthTitle(month, "LLLL").lowercase(RU)
+        Period.YEAR -> "${month.year} год"
+        Period.ALL -> "всё время"
+    }
 
     fun colorOf(index: Int, s: Slice) = if (s.id == null || index >= SLICE_COLORS.size) OTHER_COLOR else SLICE_COLORS[index]
     fun open(s: Slice) {
@@ -130,16 +154,28 @@ fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
                     navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
                     title = { Text("Графики") },
                 )
-                MonthSwitcher(month, onChange = { monthText = it.toString(); parent = null })
+                when (period) {
+                    Period.MONTH -> MonthSwitcher(month, onChange = { show(Period.MONTH, it) })
+                    Period.YEAR -> Switcher(
+                        "${month.year} год", "Предыдущий год", "Следующий год",
+                        onPrev = { show(Period.YEAR, month.minusYears(1)) }, onNext = { show(Period.YEAR, month.plusYears(1)) },
+                    )
+                    Period.ALL -> Unit
+                }
             }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
-            // Две группы чипов: не влезают в строку — валюты целиком переносятся вниз, край не режет чип.
+            // Группы чипов: не влезают в строку — группа целиком переносится вниз, край не режет чип.
             FlowRow(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for ((p, label) in listOf(Period.MONTH to "Месяц", Period.YEAR to "Год", Period.ALL to "Всё время")) {
+                        FilterChip(selected = period == p, onClick = { show(p) }, label = { Text(label) })
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = expense, onClick = { expense = true; parent = null }, label = { Text("Расходы") })
                     FilterChip(selected = !expense, onClick = { expense = false; parent = null }, label = { Text("Доходы") })
@@ -165,14 +201,14 @@ fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
                     )
                 } else {
                     Text(
-                        (if (expense) "Расходы" else "Доходы") + " за " + monthTitle(month, "LLLL").lowercase(RU),
+                        (if (expense) "Расходы" else "Доходы") + " за " + periodTitle,
                         style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 12.dp).weight(1f),
                     )
                 }
             }
             // «Нет данных» — только когда загружены и суммы, и справочники (иначе мигает при открытии).
             if (monthSums != null && cur != null && categories.isNotEmpty() && all.isEmpty()) {
-                EmptyState("Нет данных", "За этот месяц операций в этой валюте нет.", Modifier.fillMaxWidth())
+                EmptyState("Нет данных", "За этот период операций в этой валюте нет.", Modifier.fillMaxWidth())
             } else if (pie.isNotEmpty()) {
                 // Кольцо: сумма — в центре, вместо строки заголовка.
                 Pie(
@@ -204,38 +240,32 @@ fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
-            // Столбики за 12 месяцев.
-            Text("По месяцам", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
+            // Столбики: 12 месяцев до выбранного, месяцы года или годы; нажатие — переход к этому периоду.
+            Text(
+                if (period == Period.ALL) "По годам" else "По месяцам",
+                style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp),
+            )
             Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 LegendSwatch(ExpenseColor, "Расходы")
                 Spacer(Modifier.width(16.dp))
                 LegendSwatch(chartIncomeColor(), "Доходы")
             }
-            if (bars != null) {
-                if (bars.all { it.expense == 0L && it.income == 0L }) {
-                    EmptyState("Нет данных", "За последние 12 месяцев операций в этой валюте нет.", Modifier.fillMaxWidth())
-                } else {
-                    Bars(
-                        bars, month, onMonth = { monthText = it.toString(); parent = null },
-                        modifier = Modifier.fillMaxWidth().height(160.dp).padding(horizontal = 8.dp),
+            if (dayRows != null && cur != null) {
+                val monthLabel = { m: YearMonth -> monthTitle(m, "LLL").trimEnd('.').take(3) }
+                when (period) {
+                    Period.MONTH -> BarChart(
+                        monthly(dayRows, month, cur), month, monthLabel, { show(Period.MONTH, it) },
+                        "За последние 12 месяцев операций в этой валюте нет.", money = ::money,
+                        summary = { "${monthTitle(month, "LLLL yyyy")}: расходы ${money(it.last().expense)} · доходы ${money(it.last().income)}" },
                     )
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                        for (b in bars) {
-                            Text(
-                                monthTitle(b.month, "LLL").trimEnd('.').take(3),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (b.month == month) FontWeight.Bold else FontWeight.Normal,
-                                textAlign = TextAlign.Center, maxLines = 1,
-                                // Область нажатия 48dp по высоте, текст по центру.
-                                modifier = Modifier.weight(1f).clickable { monthText = b.month.toString(); parent = null }
-                                    .heightIn(min = 48.dp).wrapContentHeight(),
-                            )
-                        }
-                    }
-                    val sel = bars.last()
-                    Text(
-                        "${monthTitle(month, "LLLL yyyy")}: расходы ${money(sel.expense)} · доходы ${money(sel.income)}",
-                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp),
+                    Period.YEAR -> BarChart(
+                        monthly(dayRows, year.plusMonths(11), cur), null, monthLabel, { show(Period.MONTH, it) },
+                        "За этот год операций в этой валюте нет.", money = ::money,
+                    )
+                    Period.ALL -> BarChart(
+                        yearly(dayRows, cur, YearMonth.now().year), null, { it.toString() },
+                        { show(Period.YEAR, YearMonth.of(it, month.monthValue)) },
+                        "Операций в этой валюте нет.", money = ::money,
                     )
                 }
             }
@@ -302,9 +332,44 @@ private fun Pie(pie: List<Slice>, total: Long, label: String, colorOf: (Int, Sli
     }
 }
 
-/** Пары столбиков расходы/доходы; выбранный месяц ярче; нажатие — [onMonth]. */
+/**
+ * Столбики с подписями и итогом под ними: [summary] — своя строка итога, по умолчанию — сумма всех
+ * столбиков; все нули — [empty]. [selected] null — все столбики яркие.
+ */
 @Composable
-private fun Bars(bars: List<MonthBar>, selected: YearMonth, onMonth: (YearMonth) -> Unit, modifier: Modifier) {
+private fun <K> BarChart(
+    bars: List<Bar<K>>,
+    selected: K?,
+    label: (K) -> String,
+    onTap: (K) -> Unit,
+    empty: String,
+    money: (Long) -> String,
+    summary: (List<Bar<K>>) -> String = { "Итого: расходы ${money(it.sumOf { b -> b.expense })} · доходы ${money(it.sumOf { b -> b.income })}" },
+) {
+    if (bars.all { it.expense == 0L && it.income == 0L }) {
+        EmptyState("Нет данных", empty, Modifier.fillMaxWidth())
+        return
+    }
+    // ponytail: годы — по столбику на год без прокрутки; при 15+ годах подписи тесные, тогда — горизонтальный скролл.
+    Bars(bars, selected, onTap, Modifier.fillMaxWidth().height(160.dp).padding(horizontal = 8.dp))
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        for (b in bars) {
+            Text(
+                label(b.key),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (b.key == selected) FontWeight.Bold else FontWeight.Normal,
+                textAlign = TextAlign.Center, maxLines = 1,
+                // Область нажатия 48dp по высоте, текст по центру.
+                modifier = Modifier.weight(1f).clickable { onTap(b.key) }.heightIn(min = 48.dp).wrapContentHeight(),
+            )
+        }
+    }
+    Text(summary(bars), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
+}
+
+/** Пары столбиков расходы/доходы; выбранный ([selected]) ярче, null — все яркие; нажатие — [onTap]. */
+@Composable
+private fun <K> Bars(bars: List<Bar<K>>, selected: K?, onTap: (K) -> Unit, modifier: Modifier) {
     val axis = MaterialTheme.colorScheme.outlineVariant
     val surface = MaterialTheme.colorScheme.surface
     val income = chartIncomeColor()
@@ -313,19 +378,19 @@ private fun Bars(bars: List<MonthBar>, selected: YearMonth, onMonth: (YearMonth)
         modifier.pointerInput(bars) {
             detectTapGestures { p ->
                 val i = (p.x / (size.width / bars.size)).toInt().coerceIn(0, bars.lastIndex)
-                onMonth(bars[i].month)
+                onTap(bars[i].key)
             }
         },
     ) {
         val group = size.width / bars.size
-        val barW = group * 0.32f
+        val barW = minOf(group * 0.32f, 24.dp.toPx()) // мало столбиков (1–2 года) — не во всю ширину
         val gap = 2.dp.toPx()
         val radius = 4.dp.toPx()
         val h = size.height
         for ((i, b) in bars.withIndex()) {
             // Невыбранный месяц бледнее: непрозрачный цвет, смешанный с фоном (прозрачность
             // дала бы тёмную полосу там, где квадратный низ ложится на скруглённый столбик).
-            val fade = if (b.month == selected) 1f else 0.45f
+            val fade = if (selected == null || b.key == selected) 1f else 0.45f
             val x0 = i * group + (group - 2 * barW - gap) / 2f
             for ((j, pair) in listOf(b.expense to ExpenseColor, b.income to income).withIndex()) {
                 val (v, color) = pair
