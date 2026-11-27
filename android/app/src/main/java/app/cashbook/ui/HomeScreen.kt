@@ -169,8 +169,12 @@ fun HomeScreen(
         Cell(Node(NodeKind.EXPENSE, it.id), it.name, multi(rolled[it.id], precisions, compact = true), ExpenseColor, icon = categoryIcon(it.icon))
     }.withInitials()
     val accountCells = balances.inUserOrder().map {
-        Cell(Node(NodeKind.ACCOUNT, it.accountId), it.name, "${fmt(it.balance, 0)} ${symbol(it.currencyCode)}", AccountColor, it.balance < 0)
-    }.withInitials()
+        // На кружке счёта — знак его валюты (₴, $, €; прочие — код): различает счета по валюте, имя — подпись.
+        Cell(
+            Node(NodeKind.ACCOUNT, it.accountId), it.name, "${fmt(it.balance, 0)} ${symbol(it.currencyCode)}", AccountColor,
+            it.balance < 0, initials = symbol(it.currencyCode),
+        )
+    }
 
     val balanceByCurrency = balances.groupBy { it.currencyCode }.mapValues { (_, v) -> v.sumOf { it.balance } }
     fun expenses(r: Map<Long, Map<String, Long>>) = expenseTops.mapNotNull { r[it.id] }.flatMap { it.entries }
@@ -508,6 +512,7 @@ private fun Circle(cell: Cell, modifier: Modifier = Modifier, highlighted: Boole
         } else {
             Text(
                 cell.initials, color = onCircle(cell.color), style = MaterialTheme.typography.titleMedium,
+                maxLines = 1, softWrap = false, // код валюты из трёх букв не переносится при крупном шрифте
                 modifier = Modifier.clearAndSetSemantics {},
             )
         }

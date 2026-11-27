@@ -20,24 +20,38 @@ NS = "{http://www.w3.org/2000/svg}"
 # здоровье, досуг, люди, деньги.
 ICONS = [
     ("shopping-cart", "Тележка"), ("shopping-basket", "Корзина"), ("shopping-bag", "Пакет"), ("store", "Магазин"),
-    ("coffee", "Кофе"), ("cookie", "Печенье"), ("concierge-bell", "Ресторан"),
+    ("coffee", "Кофе"), ("cookie", "Печенье"), ("slice", "Пицца"), ("concierge-bell", "Ресторан"),
     ("bus", "Автобус"), ("car", "Машина"), ("car-taxi-front", "Такси"), ("tram-front", "Трамвай"),
-    ("bike", "Велосипед"), ("plane-takeoff", "Самолёт"), ("fuel-gauge", "Топливо"), ("truck", "Грузовик"),
-    ("ship", "Корабль"),
+    ("rail-station", "Поезд"), ("bike", "Велосипед"), ("plane-takeoff", "Самолёт"), ("fuel-gauge", "Топливо"),
+    ("ev-station", "Зарядка"), ("engine", "Автосервис"), ("parking-meter", "Парковка"), ("truck", "Грузовик"),
+    ("delivery-van", "Доставка"), ("ship", "Корабль"),
     ("house", "Дом"), ("key", "Ключ"), ("zap", "Электричество"), ("droplets", "Вода"), ("flame", "Газ"),
-    ("wifi-high", "Интернет"), ("phone", "Телефон"), ("smartphone", "Смартфон"), ("wrench", "Ремонт"),
-    ("broom", "Уборка"), ("sprout", "Сад"),
-    ("heart", "Сердце"), ("stethoscope", "Врач"), ("tablets", "Лекарства"), ("scissors", "Стрижка"),
-    ("graduation-cap", "Учёба"), ("book-open", "Книги"), ("film", "Кино"), ("headphones", "Музыка"),
-    ("palette", "Хобби"), ("ferris-wheel", "Развлечения"), ("camera", "Фото"), ("monitor", "Техника"),
-    ("trophy", "Спорт"), ("gift", "Подарок"), ("umbrella", "Страховка"), ("globe", "Путешествия"),
-    ("package", "Посылка"),
-    ("users", "Семья"), ("user", "Человек"), ("handshake", "Помощь"),
-    ("briefcase", "Работа"), ("coins", "Монеты"), ("hand-coins", "Выплата"), ("piggy-bank", "Копилка"),
-    ("wallet-balance", "Кошелёк"), ("credit-card", "Карта"), ("receipt", "Чек"), ("percent", "Проценты"),
-    ("trending-up", "Рост"), ("dollar-sign", "Доллар"), ("award", "Премия"), ("gavel", "Налоги"),
-    ("subscription", "Подписки"), ("tag", "Скидка"), ("star", "Звезда"),
+    ("smart-meter", "Счётчики"), ("wifi-high", "Интернет"), ("phone", "Телефон"), ("smartphone", "Смартфон"),
+    ("card-sim", "Мобильная связь"), ("wrench", "Ремонт"), ("hammer", "Стройка"), ("toolbox", "Инструменты"),
+    ("paint-roller", "Отделка"), ("broom", "Уборка"), ("sprout", "Сад"),
+    ("medical", "Медицина"), ("heart", "Сердце"), ("health-check", "Пульс"), ("stethoscope", "Врач"),
+    ("tablets", "Лекарства"), ("capsule", "Капсула"), ("thermometer", "Градусник"), ("microscope", "Анализы"),
+    ("scissors", "Стрижка"), ("person-standing", "Фитнес"), ("footprints", "Прогулки"),
+    ("graduation-cap", "Учёба"), ("university", "Университет"), ("book-open", "Книги"), ("film", "Кино"),
+    ("clapperboard", "Видео"), ("headphones", "Музыка"), ("speaker", "Аудио"), ("joystick", "Игры"),
+    ("puzzle", "Игрушки"), ("palette", "Хобби"), ("ferris-wheel", "Развлечения"), ("camera", "Фото"),
+    ("monitor", "Техника"), ("printer", "Печать"), ("trophy", "Спорт"), ("gift", "Подарок"),
+    ("umbrella", "Страховка"), ("globe", "Путешествия"), ("map", "Туризм"), ("sun", "Отпуск"),
+    ("snowflake", "Зима"), ("package", "Посылка"), ("mail", "Почта"),
+    ("users", "Семья"), ("user", "Человек"), ("handshake", "Помощь"), ("crown", "Премиум"),
+    ("briefcase", "Работа"), ("coins", "Монеты"), ("hand-coins", "Выплата"), ("payout", "Перевод"),
+    ("refund", "Возврат"), ("piggy-bank", "Копилка"), ("wallet-balance", "Кошелёк"), ("credit-card", "Карта"),
+    ("receipt", "Чек"), ("invoice", "Счёт"), ("calculator", "Бухгалтерия"), ("percent", "Проценты"),
+    ("tax-rate", "Налог"), ("trending-up", "Рост"), ("dollar-sign", "Доллар"), ("award", "Премия"),
+    ("gavel", "Суд"), ("scale", "Юрист"), ("subscription", "Подписки"), ("coupon", "Купон"),
+    ("tag", "Скидка"), ("star", "Звезда"),
 ]
+
+# Своих рисунков нет в theSVG — нарисованы в том же стиле (24×24, линия 1,75, срезанные углы).
+CUSTOM = {
+    # Медицинский крест.
+    "medical": ["M10 3L14 3L15 4L15 9L20 9L21 10L21 14L20 15L15 15L15 20L14 21L10 21L9 20L9 15L4 15L3 14L3 10L4 9L9 9L9 4L10 3Z"],
+}
 
 LICENSE = """MIT License
 
@@ -108,13 +122,17 @@ def paths(svg: str):
 def main():
     icons = {}
     for slug, _ in ICONS:
+        if slug in CUSTOM:
+            icons[slug] = CUSTOM[slug]
+            continue
         with urllib.request.urlopen(URL.format(v=VERSION, slug=slug), timeout=30) as r:
             icons[slug] = paths(r.read().decode("utf-8"))
     lines = [
         "package app.cashbook.ui",
         "",
         "// Сгенерировано tools/ui_icons.py — руками не править.",
-        f"// Иконки: theSVG UI {VERSION}, вид outline (https://thesvg.org/ui), сетка 24×24, линия 1,75.",
+        f"// Иконки: theSVG UI {VERSION}, вид outline (https://thesvg.org/ui), сетка 24×24, линия 1,75;",
+        f"// свои в том же стиле: {', '.join(CUSTOM)}.",
         "// Лицензия иконок:",
         *("// " + l if l else "//" for l in LICENSE.splitlines()),
         "",
