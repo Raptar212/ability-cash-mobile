@@ -12,8 +12,11 @@ import java.time.YearMonth
 /** Доля круга: статья ([id] null — «Другое»), сумма, есть ли у статьи подстатьи для раскрытия. */
 data class Slice(val id: Long?, val name: String, val amount: Long, val hasChildren: Boolean)
 
-/** Столбики месяца: расходы и доходы в одной валюте. */
-data class MonthBar(val month: YearMonth, val expense: Long, val income: Long)
+/** Период графиков: месяц, год или всё время. */
+enum class Period { MONTH, YEAR, ALL }
+
+/** Пара столбиков периода [key] (месяц или год): расходы и доходы в одной валюте. */
+data class Bar<K>(val key: K, val expense: Long, val income: Long)
 
 const val NO_SUBCATEGORY = "Без подстатьи"
 const val OTHER = "Другое"
@@ -58,14 +61,25 @@ fun percent(amount: Long, total: Long): Int =
     if (total <= 0) 0 else BigDecimal(amount).multiply(BigDecimal(100)).divide(BigDecimal(total), 0, RoundingMode.HALF_UP).toInt()
 
 /** 12 месяцев до [end] включительно: расходы и доходы в валюте [code]; пустой месяц — нули. */
-fun monthly(rows: List<DaySum>, end: YearMonth, code: String): List<MonthBar> {
-    val expense = HashMap<YearMonth, Long>()
-    val income = HashMap<YearMonth, Long>()
+fun monthly(rows: List<DaySum>, end: YearMonth, code: String): List<Bar<YearMonth>> =
+    bars(rows, code, (11 downTo 0).map { end.minusMonths(it.toLong()) }) { YearMonth.from(it) }
+
+/** По годам от первого года с операциями в [code] до [now] включительно; операций нет — пусто. */
+fun yearly(rows: List<DaySum>, code: String, now: Int): List<Bar<Int>> {
+    val years = rows.filter { it.currencyCode == code }.map { LocalDate.ofEpochDay(it.date).year }
+    if (years.isEmpty()) return emptyList()
+    return bars(rows, code, (years.min()..maxOf(now, years.max())).toList()) { it.year }
+}
+
+/** Суммы расходов и доходов в [code] по ключам [keys] (ключ дня — [keyOf]); пустой ключ — нули. */
+private fun <K> bars(rows: List<DaySum>, code: String, keys: List<K>, keyOf: (LocalDate) -> K): List<Bar<K>> {
+    val expense = HashMap<K, Long>()
+    val income = HashMap<K, Long>()
     for (r in rows) {
         if (r.currencyCode != code) continue
-        val m = YearMonth.from(LocalDate.ofEpochDay(r.date))
+        val k = keyOf(LocalDate.ofEpochDay(r.date))
         val target = if (r.expense) expense else income
-        target[m] = (target[m] ?: 0L) + r.amount
+        target[k] = (target[k] ?: 0L) + r.amount
     }
-    return (11 downTo 0).map { end.minusMonths(it.toLong()) }.map { MonthBar(it, expense[it] ?: 0L, income[it] ?: 0L) }
+    return keys.map { Bar(it, expense[it] ?: 0L, income[it] ?: 0L) }
 }
