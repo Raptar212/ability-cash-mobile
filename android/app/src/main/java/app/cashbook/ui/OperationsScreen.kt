@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -165,7 +166,13 @@ fun OperationsScreen(
         // До загрузки список не рисуем: пустой LazyColumn сбросил бы прокрутку при возврате из правки.
         if (ops == null) return@Scaffold
         if (days.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) { Text("Операций нет") }
+            val hint = when (filter) {
+                OpsFilter.All -> "Перетащите счёт на статью на главном экране — трата появится здесь."
+                is OpsFilter.Account -> "Операций по счёту в этом месяце нет. «+» вверху — новый расход."
+                is OpsFilter.Category -> "Трат по статье в этом месяце нет. «+» вверху — новый расход."
+                is OpsFilter.Day -> "В этот день операций нет. Перетащите счёт на статью на главном экране."
+            }
+            EmptyState("Операций нет", hint, Modifier.padding(padding).fillMaxSize())
             return@Scaffold
         }
         LazyColumn(Modifier.padding(padding).fillMaxSize(), state = listState) {
@@ -196,6 +203,22 @@ fun OperationsScreen(
                 }
             }
         }
+    }
+}
+
+/** Пустой экран: значок, что пусто, и подсказка, что сделать. */
+@Composable
+fun EmptyState(title: String, hint: String, modifier: Modifier = Modifier) {
+    Column(modifier.padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            Icons.AutoMirrored.Filled.List, null, tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(48.dp),
+        )
+        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+        Text(
+            hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 

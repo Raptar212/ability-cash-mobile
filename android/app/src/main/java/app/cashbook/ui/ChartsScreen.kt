@@ -169,14 +169,14 @@ fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
                         style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 12.dp).weight(1f),
                     )
                 }
-                Text(money(total), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
             // «Нет данных» — только когда загружены и суммы, и справочники (иначе мигает при открытии).
             if (monthSums != null && cur != null && categories.isNotEmpty() && all.isEmpty()) {
-                Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) { Text("Нет данных") }
+                EmptyState("Нет данных", "За этот месяц операций в этой валюте нет.", Modifier.fillMaxWidth())
             } else if (pie.isNotEmpty()) {
+                // Кольцо: сумма — в центре, вместо строки заголовка.
                 Pie(
-                    pie, total, ::colorOf, onTap = ::open,
+                    pie, total, money(total), ::colorOf, onTap = ::open,
                     modifier = Modifier.padding(16.dp).size(220.dp).align(Alignment.CenterHorizontally),
                 )
                 // Легенда-список: все статьи с суммой и долей.
@@ -213,7 +213,7 @@ fun ChartsScreen(dao: CashDao, onBack: () -> Unit) {
             }
             if (bars != null) {
                 if (bars.all { it.expense == 0L && it.income == 0L }) {
-                    Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) { Text("Нет данных") }
+                    EmptyState("Нет данных", "За последние 12 месяцев операций в этой валюте нет.", Modifier.fillMaxWidth())
                 } else {
                     Bars(
                         bars, month, onMonth = { monthText = it.toString(); parent = null },
@@ -249,42 +249,56 @@ private fun LegendSwatch(color: Color, label: String) {
     Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 6.dp))
 }
 
-/** Круг долей с зазором цвета фона между секторами; нажатие на сектор — [onTap]. */
+/** Доля радиуса под дырку кольца. */
+private const val HOLE = 0.6f
+
+/** Кольцо долей с зазором цвета фона между секторами и [label] (сумма) в центре; нажатие на сектор — [onTap]. */
 @Composable
-private fun Pie(pie: List<Slice>, total: Long, colorOf: (Int, Slice) -> Color, onTap: (Slice) -> Unit, modifier: Modifier) {
+private fun Pie(pie: List<Slice>, total: Long, label: String, colorOf: (Int, Slice) -> Color, onTap: (Slice) -> Unit, modifier: Modifier) {
     val surface = MaterialTheme.colorScheme.surface
     // Углы — только для рисования (деньги в модели остаются Long).
     val sweeps = pie.map { (it.amount.toDouble() / total * 360.0).toFloat() }
-    Canvas(
-        modifier.pointerInput(pie) {
-            detectTapGestures { p ->
-                val dx = p.x - size.width / 2f
-                val dy = p.y - size.height / 2f
-                if (hypot(dx, dy) > size.width / 2f) return@detectTapGestures
-                var angle = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat() + 90f // 0° — сверху, по часовой
-                if (angle < 0) angle += 360f
-                // Последняя доля — остаток до 360°: округление углов не теряет нажатие у шва.
-                var acc = 0f
-                val hit = pie.withIndex().firstOrNull { (i, _) -> acc += sweeps[i]; angle <= acc }?.value ?: pie.last()
-                onTap(hit)
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Canvas(
+            Modifier.fillMaxSize().pointerInput(pie) {
+                detectTapGestures { p ->
+                    val dx = p.x - size.width / 2f
+                    val dy = p.y - size.height / 2f
+                    val d = hypot(dx, dy)
+                    if (d > size.width / 2f || d < size.width / 2f * HOLE) return@detectTapGestures // мимо кольца
+                    var angle = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat() + 90f // 0° — сверху, по часовой
+                    if (angle < 0) angle += 360f
+                    // Последняя доля — остаток до 360°: округление углов не теряет нажатие у шва.
+                    var acc = 0f
+                    val hit = pie.withIndex().firstOrNull { (i, _) -> acc += sweeps[i]; angle <= acc }?.value ?: pie.last()
+                    onTap(hit)
+                }
+            },
+        ) {
+            val r = size.minDimension / 2f
+            val c = Offset(size.width / 2f, size.height / 2f)
+            var start = -90f
+            for ((i, s) in pie.withIndex()) {
+                drawArc(colorOf(i, s), start, sweeps[i], useCenter = true, topLeft = c - Offset(r, r), size = Size(2 * r, 2 * r))
+                start += sweeps[i]
             }
-        },
-    ) {
-        val r = size.minDimension / 2f
-        val c = Offset(size.width / 2f, size.height / 2f)
-        var start = -90f
-        for ((i, s) in pie.withIndex()) {
-            drawArc(colorOf(i, s), start, sweeps[i], useCenter = true, topLeft = c - Offset(r, r), size = Size(2 * r, 2 * r))
-            start += sweeps[i]
-        }
-        if (pie.size > 1) {
-            start = -90f
-            for (sw in sweeps) {
-                val a = start * PI / 180.0
-                drawLine(surface, c, c + Offset((r * cos(a)).toFloat(), (r * sin(a)).toFloat()), strokeWidth = 2.dp.toPx())
-                start += sw
+            if (pie.size > 1) {
+                start = -90f
+                for (sw in sweeps) {
+                    val a = start * PI / 180.0
+                    drawLine(surface, c, c + Offset((r * cos(a)).toFloat(), (r * sin(a)).toFloat()), strokeWidth = 2.dp.toPx())
+                    start += sw
+                }
             }
+            drawCircle(surface, r * HOLE, c)
         }
+        // Не шире дырки (0,6 диаметра), иначе сумма легла бы на цветное кольцо; длинная — мельче.
+        Text(
+            label,
+            style = if (label.length > 12) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(HOLE * 0.9f),
+        )
     }
 }
 
