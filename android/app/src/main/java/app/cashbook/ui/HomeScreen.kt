@@ -127,6 +127,7 @@ fun HomeScreen(
     onDrop: (Node, Node) -> Unit,
     onSettings: () -> Unit,
     onOperations: () -> Unit,
+    onToday: (epochDay: Long) -> Unit,
 ) {
     var newCategory by remember { mutableStateOf<CategoryKind?>(null) } // «+» в заголовке «Доходы»/«Расходы»
     val month = remember {
@@ -136,6 +137,8 @@ fun HomeScreen(
     val balances by remember { dao.balances() }.collectAsState(initial = emptyList())
     val categories by remember { dao.allCategories() }.collectAsState(initial = emptyList())
     val sums by remember { dao.categorySums(month.first, month.second) }.collectAsState(initial = emptyList())
+    val today = remember { LocalDate.now().toEpochDay() }
+    val daySums by remember { dao.categorySums(today, today) }.collectAsState(initial = emptyList())
     val currencies by remember { dao.currencies() }.collectAsState(initial = emptyList())
 
     val precisions = currencies.associate { it.code to it.precision }
@@ -153,8 +156,10 @@ fun HomeScreen(
     }.withInitials()
 
     val balanceByCurrency = balances.groupBy { it.currencyCode }.mapValues { (_, v) -> v.sumOf { it.balance } }
-    val expenseByCurrency = expenseTops.mapNotNull { rolled[it.id] }.flatMap { it.entries }
+    fun expenses(r: Map<Long, Map<String, Long>>) = expenseTops.mapNotNull { r[it.id] }.flatMap { it.entries }
         .groupBy({ it.key }, { it.value }).mapValues { it.value.sum() }
+    val expenseByCurrency = expenses(rolled)
+    val dayExpenseByCurrency = expenses(remember(categories, daySums) { rollUp(categories, daySums) })
 
     // Перетаскивание: прямоугольники кружков в координатах корня → цель под пальцем.
     val bounds = remember { mutableStateMapOf<Node, Rect>() }
@@ -276,11 +281,20 @@ fun HomeScreen(
                         HeaderValue("Баланс", multi(balanceByCurrency, precisions, compact = false, sep = "\n"), Modifier.weight(1f))
                         VerticalDivider(Modifier.fillMaxHeight().padding(horizontal = 12.dp))
                         // Плашка расходов — вход в ленту операций по месяцам (вместо значка календаря).
-                        HeaderValue(
-                            "Расходы за месяц",
-                            multi(expenseByCurrency, precisions, compact = false, sep = "\n"),
-                            Modifier.weight(1f).clickable(onClickLabel = "Операции за месяц", role = Role.Button, onClick = onOperations),
-                        )
+                        // Под месяцем — день: вход в ленту всех операций за сегодня.
+                        Column(Modifier.weight(1f)) {
+                            HeaderValue(
+                                "Расходы за месяц",
+                                multi(expenseByCurrency, precisions, compact = false, sep = "\n"),
+                                Modifier.fillMaxWidth().clickable(onClickLabel = "Операции за месяц", role = Role.Button, onClick = onOperations),
+                            )
+                            HeaderValue(
+                                "Расходы за день",
+                                multi(dayExpenseByCurrency, precisions, compact = false, sep = "\n"),
+                                Modifier.fillMaxWidth().padding(top = 4.dp)
+                                    .clickable(onClickLabel = "Операции за сегодня", role = Role.Button) { onToday(today) }, // тот же день, что в сумме
+                            )
+                        }
                     }
                 }
             }

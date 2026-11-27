@@ -129,6 +129,7 @@ class MainActivity : ComponentActivity() {
                 // Лента одного счёта / одной статьи расхода (тап по кружку); оба null — все операции.
                 var listAccount by rememberSaveable { mutableStateOf<Long?>(null) }
                 var listCategory by rememberSaveable { mutableStateOf<Long?>(null) }
+                var listDay by rememberSaveable { mutableStateOf<Long?>(null) } // лента одного дня (epochDay)
                 var charts by rememberSaveable { mutableStateOf(false) }
                 var widgetSettings by rememberSaveable { mutableStateOf(false) }
                 var categoriesKind by rememberSaveable { mutableStateOf<CategoryKind?>(null) } // экран «Статьи»
@@ -311,7 +312,10 @@ class MainActivity : ComponentActivity() {
                     operation != null -> {
                         BackHandler { drop = null }
                         val (from, to) = decodeDrop(operation)
-                        OperationScreen(dao, from, to, onDone = { drop = null }, onSaved = { id, text -> undo = id to text })
+                        OperationScreen(dao, from, to, onDone = { drop = null }, onSaved = { id, text ->
+                            undo = id to text
+                            listState.requestScrollToItem(0) // новая операция — наверху ленты, иначе кажется, что не добавилась
+                        })
                     }
                     opId != null -> {
                         BackHandler { editOp = null }
@@ -326,10 +330,12 @@ class MainActivity : ComponentActivity() {
                             listMonth = null
                             listAccount = null
                             listCategory = null
+                            listDay = null
                         }
                         BackHandler { close() }
                         val acc = listAccount
                         val cat = listCategory
+                        val day = listDay
                         OperationsScreen(
                             dao,
                             YearMonth.parse(month),
@@ -340,6 +346,7 @@ class MainActivity : ComponentActivity() {
                             filter = when {
                                 acc != null -> OpsFilter.Account(acc)
                                 cat != null -> OpsFilter.Category(cat)
+                                day != null -> OpsFilter.Day(day)
                                 else -> OpsFilter.All
                             },
                             // «+» на счёте — выбор статьи расхода, как с виджета.
@@ -437,6 +444,11 @@ class MainActivity : ComponentActivity() {
                         onOperations = {
                             listMonth = YearMonth.now().toString()
                             listState.requestScrollToItem(0) // с главного — сверху; из правки — на прежнее место
+                        },
+                        onToday = { day ->
+                            listDay = day
+                            listMonth = YearMonth.from(LocalDate.ofEpochDay(day)).toString()
+                            listState.requestScrollToItem(0)
                         },
                     )
                 }

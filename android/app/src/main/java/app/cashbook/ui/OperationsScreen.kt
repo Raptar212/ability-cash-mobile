@@ -64,6 +64,8 @@ sealed interface OpsFilter {
     data object All : OpsFilter
     data class Account(val id: Long) : OpsFilter
     data class Category(val id: Long) : OpsFilter
+    /** Все операции одного дня [date] (epochDay); месяц не переключается. */
+    data class Day(val date: Long) : OpsFilter
 }
 
 /**
@@ -104,12 +106,14 @@ fun OperationsScreen(
             OpsFilter.All -> true
             is OpsFilter.Account -> op.expenseAccountId == filter.id || op.incomeAccountId == filter.id
             is OpsFilter.Category -> op.categoryId?.let { topCategory(catById, it) == filter.id } == true
+            is OpsFilter.Day -> op.date == filter.date
         }
     }
     val title = when (filter) {
         OpsFilter.All -> "Операции"
         is OpsFilter.Account -> accountById[filter.id]?.name ?: ""
         is OpsFilter.Category -> catById[filter.id]?.name ?: ""
+        is OpsFilter.Day -> "Операции за день"
     }
     val days = remember(ops, currencyOf) { byDay(ops.orEmpty(), currencyOf) }
 
@@ -145,7 +149,7 @@ fun OperationsScreen(
                         onAdd?.let { IconButton(onClick = it) { Icon(Icons.Filled.Add, "Добавить операцию") } }
                     },
                 )
-                MonthSwitcher(month, onChange = ::go)
+                if (filter !is OpsFilter.Day) MonthSwitcher(month, onChange = ::go)
             }
         },
     ) { padding ->
