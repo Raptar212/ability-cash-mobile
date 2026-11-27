@@ -13,8 +13,8 @@ android {
         applicationId = "app.cashbook"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "1.7.1"
+        versionCode = 16
+        versionName = "1.8.0"
     }
 
     // Ключ вне репо: ~/.gradle/gradle.properties или ORG_GRADLE_PROJECT_cashbookStoreFile и т.д.
