@@ -9,7 +9,13 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.unit.dp
 
 // Фон и поверхности — нейтральные с бирюзовым оттенком (тональная палитра Material для бирюзы),
 // иначе остаются сиреневые по умолчанию из Material 3.
@@ -130,3 +136,25 @@ fun accountArgb(id: Long, color: Int?): Int = color ?: ACCOUNT_COLORS[Math.floor
 /** Цвет суммы дохода в ленте — зелёный, читаемый на светлом и тёмном фоне. */
 @Composable
 fun incomeColor() = if (darkScheme()) Color(0xFF81C784) else Color(0xFF2E7D32)
+
+// Собранные иконки: путь разбирается один раз на слаг (вызывается только из UI-потока).
+private val iconCache = HashMap<String, ImageVector>()
+
+/**
+ * Иконка статьи по слагу ([CATEGORY_ICON_PATHS]): обводка белым, цвет задаёт `tint` у `Icon`.
+ * null — иконки нет или слаг неизвестен (убрали из набора): на кружке остаются инициалы.
+ */
+fun categoryIcon(slug: String?): ImageVector? {
+    val paths = CATEGORY_ICON_PATHS[slug ?: return null] ?: return null
+    return iconCache.getOrPut(slug) {
+        ImageVector.Builder(slug, 24.dp, 24.dp, 24f, 24f).apply {
+            for (d in paths) {
+                addPath(
+                    PathParser().parsePathString(d).toNodes(),
+                    stroke = SolidColor(Color.White), strokeLineWidth = 1.75f,
+                    strokeLineCap = StrokeCap.Butt, strokeLineJoin = StrokeJoin.Miter,
+                )
+            }
+        }.build()
+    }
+}

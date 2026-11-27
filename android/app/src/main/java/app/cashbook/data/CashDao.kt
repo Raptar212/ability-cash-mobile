@@ -35,6 +35,10 @@ interface CashDao {
 
     @Insert suspend fun insertCategory(category: Category): Long
     @Update suspend fun updateCategory(category: Category)
+
+    /** Только иконка: не перезаписывает остальные поля статьи устаревшим снимком. */
+    @Query("UPDATE categories SET icon = :icon WHERE id = :id")
+    suspend fun setCategoryIcon(id: Long, icon: String?)
     /** Все уровни дерева одного вида, в порядке `.cash` (по id). */
     @Query("SELECT * FROM categories WHERE deleted = 0 AND kind = :kind ORDER BY id")
     fun categories(kind: CategoryKind): Flow<List<Category>>

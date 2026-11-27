@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -145,6 +146,8 @@ fun OperationsScreen(
 
     fun initials(id: Long?) = id?.let { initialsByTop[topCategory(catById, it)] } ?: "—"
 
+    fun icon(id: Long?) = id?.let { catById[topCategory(catById, it)]?.icon }?.let(::categoryIcon)
+
     fun accountColor(id: Long?) = id?.let { accountById[it] }?.let { Color(accountArgb(it.id, it.color)) }
 
     Scaffold(
@@ -198,7 +201,7 @@ fun OperationsScreen(
                     }
                 }
                 items(day.operations, key = { it.id }) { op ->
-                    OperationRow(op, ::categoryLabel, ::initials, ::accountName, ::accountColor, ::money) { onOpen(op.id) }
+                    OperationRow(op, ::categoryLabel, ::initials, ::icon, ::accountName, ::accountColor, ::money) { onOpen(op.id) }
                     HorizontalDivider()
                 }
             }
@@ -227,6 +230,7 @@ private fun OperationRow(
     op: Operation,
     categoryLabel: (Long?) -> String,
     initials: (Long?) -> String,
+    icon: (Long?) -> ImageVector?,
     accountName: (Long?) -> String,
     accountColor: (Long?) -> Color?,
     money: (Long?, Long?) -> String,
@@ -279,8 +283,11 @@ private fun OperationRow(
             OperationType.TRANSFER -> AccountColor
         }
         Box(Modifier.size(36.dp).background(circle, CircleShape).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+            val catIcon = if (type == OperationType.TRANSFER) null else icon(op.categoryId)
             if (type == OperationType.TRANSFER) {
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = onCircle(circle), modifier = Modifier.size(20.dp))
+            } else if (catIcon != null) {
+                Icon(catIcon, null, tint = onCircle(circle), modifier = Modifier.size(20.dp))
             } else {
                 Text(initials(op.categoryId), color = onCircle(circle), style = MaterialTheme.typography.labelLarge)
             }

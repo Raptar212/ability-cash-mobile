@@ -52,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
@@ -118,6 +119,7 @@ fun multi(sums: Map<String, Long>?, precisions: Map<String, Int>, compact: Boole
 private data class Cell(
     val node: Node, val label: String, val amount: String, val color: Color,
     val negative: Boolean = false, val initials: String = "",
+    val icon: ImageVector? = null, // иконка статьи; null — инициалы
 )
 
 /** Инициалы ряда — уникальные в ряду ([circleInitials]). */
@@ -160,11 +162,11 @@ fun HomeScreen(
     val rolled = remember(categories, sums) { rollUp(categories, sums) }
     val tops = categories.filter { it.parentId == null }
     val incomeCells = tops.filter { it.kind == CategoryKind.INCOME }.map {
-        Cell(Node(NodeKind.INCOME, it.id), it.name, multi(rolled[it.id], precisions, compact = true), IncomeColor)
+        Cell(Node(NodeKind.INCOME, it.id), it.name, multi(rolled[it.id], precisions, compact = true), IncomeColor, icon = categoryIcon(it.icon))
     }.withInitials()
     val expenseTops = tops.filter { it.kind == CategoryKind.EXPENSE }
     val expenseCells = expenseTops.map {
-        Cell(Node(NodeKind.EXPENSE, it.id), it.name, multi(rolled[it.id], precisions, compact = true), ExpenseColor)
+        Cell(Node(NodeKind.EXPENSE, it.id), it.name, multi(rolled[it.id], precisions, compact = true), ExpenseColor, icon = categoryIcon(it.icon))
     }.withInitials()
     val accountCells = balances.inUserOrder().map {
         Cell(Node(NodeKind.ACCOUNT, it.accountId), it.name, "${fmt(it.balance, 0)} ${symbol(it.currencyCode)}", AccountColor, it.balance < 0)
@@ -500,10 +502,14 @@ private fun Circle(cell: Cell, modifier: Modifier = Modifier, highlighted: Boole
             .background(cell.color),
         contentAlignment = Alignment.Center,
     ) {
-        // Инициалы — картинка, TalkBack читает полное имя из подписи.
-        Text(
-            cell.initials, color = onCircle(cell.color), style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.clearAndSetSemantics {},
-        )
+        // Иконка или инициалы — картинка, TalkBack читает полное имя из подписи.
+        if (cell.icon != null) {
+            Icon(cell.icon, null, tint = onCircle(cell.color), modifier = Modifier.size(28.dp))
+        } else {
+            Text(
+                cell.initials, color = onCircle(cell.color), style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.clearAndSetSemantics {},
+            )
+        }
     }
 }
