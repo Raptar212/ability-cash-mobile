@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -27,7 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -38,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -47,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -88,7 +91,9 @@ private val SAVE_HEIGHT = 68.dp // кнопка 52dp + отступы 8dp све
 /**
  * Ввод операции после перетаскивания [initialFrom] → [initialTo]; [editing] — правка существующей.
  * У расхода и дохода счёт меняется в окне. [onSaved] — новая операция записана (id, текст для
- * «Отменить»), вызывается перед [onDone].
+ * «Отменить»), вызывается перед [onDone]. [template] — новый ввод по образцу прежней операции
+ * (суммы, статья, комментарий; дата — сегодня), не правка. [onRepeat] — «Повторить сегодня» в правке.
+ * [onDeleted] — операция удалена сразу, без вопроса (для «Отменить»: сама операция и текст).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,8 +103,12 @@ fun OperationScreen(
     initialTo: Node,
     onDone: () -> Unit,
     editing: Operation? = null,
+    template: Operation? = null,
+    onRepeat: (() -> Unit)? = null,
     onSaved: (id: Long, text: String) -> Unit = { _, _ -> },
+    onDeleted: (Operation, String) -> Unit = { _, _ -> },
 ) {
+    val seed = editing ?: template // поля берутся из правимой или образцовой операции
     // Правка — и для операций архивного счёта; новый ввод — только активные счета.
     val balances by remember { if (editing != null) dao.accountsWithArchived() else dao.balances() }
         .collectAsState(initial = null)
@@ -110,20 +119,19 @@ fun OperationScreen(
 
     // Правка: сумма списания (для дохода — поступления); вторая — зачисление при переводе
     // или сумма в базовой валюте у расхода/дохода. Вторая введена руками — она главнее курса.
-    var expr by rememberSaveable { mutableStateOf(editing?.let { toExpr(it.expenseAmount ?: it.incomeAmount!!) } ?: "") }
+    var expr by rememberSaveable { mutableStateOf(seed?.let { toExpr(it.expenseAmount ?: it.incomeAmount!!) } ?: "") }
     var expr2 by rememberSaveable {
         mutableStateOf(
-            editing?.let { if (it.type == OperationType.TRANSFER) it.incomeAmount else it.baseAmount }?.let(::toExpr) ?: "",
+            seed?.let { if (it.type == OperationType.TRANSFER) it.incomeAmount else it.baseAmount }?.let(::toExpr) ?: "",
         )
     }
     var rateExpr by rememberSaveable { mutableStateOf("") }
     var ratePerFrom by rememberSaveable { mutableStateOf(true) }
     var rateFresh by rememberSaveable { mutableStateOf(true) } // первая клавиша в курсе вводит его заново
     var field by rememberSaveable { mutableStateOf(FIELD_AMOUNT) } // куда вводит калькулятор
-    var categoryId by rememberSaveable { mutableStateOf(editing?.categoryId) }
+    var categoryId by rememberSaveable { mutableStateOf(seed?.categoryId) }
     var date by rememberSaveable { mutableStateOf(editing?.date ?: LocalDate.now().toEpochDay()) }
-    var comment by rememberSaveable { mutableStateOf(editing?.comment ?: "") }
-    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    var comment by rememberSaveable { mutableStateOf(seed?.comment ?: "") }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -199,6 +207,12 @@ fun OperationScreen(
         OperationType.TRANSFER -> null
     }
     val subs = rootCategory?.let { descendants(cats, it) }.orEmpty()
+    // Подсказки комментария — по выбранной подстатье, иначе по статье кружка; перевод — без статьи.
+    val hintCategory = categoryId ?: rootCategory
+    val recent by produceState(emptyList<String>(), hintCategory) {
+        value = hintCategory?.let { dao.recentComments(it) }.orEmpty()
+    }
+    val hints = commentHints(recent, comment)
     val typeLabel = when (type) {
         OperationType.EXPENSE -> "Расход"
         OperationType.INCOME -> "Доход"
@@ -238,6 +252,26 @@ fun OperationScreen(
         }
     }
 
+    // Без вопроса: ошибку не прячет диалог, а вернуть можно «Отменить» в снекбаре.
+    fun delete() {
+        if (editing == null || saving) return
+        saving = true
+        scope.launch {
+            try {
+                dao.deleteOperation(editing)
+                val acc = accounts[editing.expenseAccountId ?: editing.incomeAccountId]
+                val sum = editing.expenseAmount ?: editing.incomeAmount!!
+                onDeleted(editing, "$typeLabel ${fmt(sum, acc?.precision ?: 2)} ${symbol(acc?.currencyCode ?: "?")}")
+                onDone()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                saving = false
+                error = "Не удалось удалить: ${e.message}"
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -250,7 +284,8 @@ fun OperationScreen(
                 },
                 actions = {
                     if (editing != null) {
-                        IconButton(onClick = { confirmDelete = true }, enabled = !saving) { Icon(Icons.Filled.Delete, "Удалить") }
+                        onRepeat?.let { IconButton(onClick = it, enabled = !saving) { Icon(Icons.Filled.Refresh, "Повторить сегодня") } }
+                        IconButton(onClick = ::delete, enabled = !saving) { Icon(Icons.Filled.Delete, "Удалить") }
                     }
                     IconButton(onClick = ::save, enabled = !saving) { Icon(Icons.Filled.Check, "Сохранить") }
                 },
@@ -352,6 +387,17 @@ fun OperationScreen(
                         keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).onFocusChanged { commentFocused = it.isFocused },
                     )
+                    if (hints.isNotEmpty()) {
+                        LazyRow(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item { Box(Modifier.padding(start = 8.dp)) }
+                            items(hints, key = { it }) { h ->
+                                SuggestionChip(
+                                    onClick = { comment = h },
+                                    label = { Text(h, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp)) },
+                                )
+                            }
+                        }
+                    }
                     DateRow(date, onPick = { date = it }, onCalendar = { picking = true })
                 }
                 if (commentFocused) {
@@ -393,32 +439,6 @@ fun OperationScreen(
                 ) { Text(if (editing != null) "Сохранить изменения" else "Сохранить", style = MaterialTheme.typography.titleMedium) }
             }
         }
-    }
-
-    if (confirmDelete && editing != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Удалить операцию?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    if (saving) return@TextButton
-                    saving = true
-                    scope.launch {
-                        try {
-                            dao.deleteOperation(editing)
-                            onDone()
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            saving = false
-                            error = "Не удалось удалить: ${e.message}"
-                        }
-                    }
-                }) { Text("Удалить") }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Отмена") } },
-        )
     }
 
     if (picking) {

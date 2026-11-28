@@ -6,7 +6,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
@@ -139,7 +141,7 @@ private fun bump(phase: Float) = sin(PI * phase).toFloat()
 fun HomeScreen(
     dao: CashDao,
     onAccount: (Long) -> Unit,
-    onExpenseCategory: (Long) -> Unit,
+    onCategoryFeed: (Long) -> Unit, // долгий тап по статье — её лента (расход или доход)
     onNewAccount: () -> Unit,
     onDrop: (Node, Node) -> Unit,
     onSettings: () -> Unit,
@@ -258,7 +260,7 @@ fun HomeScreen(
         }
     }
 
-    // Тап по статье дохода — операция со счётом последней такой операции (нет — первый счёт).
+    // Тап по статье — операция со счётом последней такой операции (нет — первый счёт).
     val scope = rememberCoroutineScope()
     fun tapCategory(node: Node) = scope.launch {
         val expense = node.kind == NodeKind.EXPENSE
@@ -267,6 +269,7 @@ fun HomeScreen(
         if (expense) onDrop(acc, node) else onDrop(node, acc)
     }
 
+    @OptIn(ExperimentalFoundationApi::class)
     @Composable
     fun cellModifier(cell: Cell): Modifier {
         val node = cell.node
@@ -308,18 +311,23 @@ fun HomeScreen(
                     },
                 )
             })
-        // Подпись действия для TalkBack: «Двойное нажатие — открыть операции счёта».
+        // Подписи действий для TalkBack: «Двойное нажатие — …», «Двойное нажатие с удержанием — …».
         val action = when (node.kind) {
             NodeKind.ACCOUNT -> "открыть операции счёта"
-            NodeKind.EXPENSE -> "открыть операции статьи"
+            NodeKind.EXPENSE -> "добавить расход"
             NodeKind.INCOME -> "добавить доход"
         }
-        return base.clickable(onClickLabel = action) {
-            if (!clickAllowed()) return@clickable
+        // Долгий тап у статьи — лента; перетаскивание дохода начинается по сдвигу пальца, раньше долгого тапа.
+        val feed = node.kind != NodeKind.ACCOUNT
+        return base.combinedClickable(
+            onClickLabel = action,
+            onLongClickLabel = if (feed) "открыть операции статьи" else null,
+            onLongClick = if (feed) { { if (clickAllowed()) onCategoryFeed(node.id) } } else null,
+        ) {
+            if (!clickAllowed()) return@combinedClickable
             when (node.kind) {
                 NodeKind.ACCOUNT -> onAccount(node.id)
-                NodeKind.EXPENSE -> onExpenseCategory(node.id)
-                NodeKind.INCOME -> tapCategory(node)
+                else -> tapCategory(node)
             }
         }
     }

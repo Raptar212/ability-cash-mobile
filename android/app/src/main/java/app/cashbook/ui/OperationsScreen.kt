@@ -21,7 +21,9 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -30,14 +32,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
@@ -74,6 +81,8 @@ sealed interface OpsFilter {
 /**
  * Лента операций месяца [month] по дням; нажатие на строку — [onOpen] с id операции.
  * [filter] не All — в заголовке имя счёта/статьи, месяц строкой ниже; [onAdd]/[onEdit] — «+» и «✎» справа.
+ * Поиск (только при All): [search] — строка запроса, null — поиск закрыт; пока она не пуста, показаны
+ * совпадения по всем месяцам. [onSearch] открывает («») и закрывает (null) поиск и меняет строку.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,12 +97,19 @@ fun OperationsScreen(
     onAdd: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
     onTransfer: (() -> Unit)? = null,
+    search: String? = null,
+    onSearch: ((String?) -> Unit)? = null,
 ) {
+    val searching = filter is OpsFilter.All && !search.isNullOrBlank()
     // Список помнит свой месяц: до загрузки нового операции прошлого не показываются ни кадра.
     val loaded by produceState<Pair<YearMonth, List<Operation>>?>(null, month) {
         dao.operations(month.atDay(1).toEpochDay(), month.atEndOfMonth().toEpochDay()).collect { value = month to it }
     }
     val monthOps = loaded?.takeIf { it.first == month }?.second
+    // Поиск идёт по всей базе; подписка только пока он активен.
+    val allOps by produceState<List<Operation>?>(null, searching) {
+        if (searching) dao.allOperationsFlow().collect { value = it } else value = null
+    }
     val accounts by remember { dao.allAccounts() }.collectAsState(initial = emptyList())
     val currencies by remember { dao.currencies() }.collectAsState(initial = emptyList())
     val categories by remember { dao.allCategories() }.collectAsState(initial = emptyList())
@@ -104,7 +120,16 @@ fun OperationsScreen(
     val precisions = currencies.associate { it.code to it.precision }
     val catById = categories.associateBy { it.id }
     // Пока статьи не загрузились, фильтр по статье не применить — ждём, как и операции.
-    val ops = if (filter is OpsFilter.Category && categories.isEmpty()) null else monthOps?.filter { op ->
+    val found = remember(allOps, search, categories, accounts) {
+        if (!searching || categories.isEmpty() || accounts.isEmpty()) {
+            null
+        } else {
+            val names = accounts.associate { it.id to it.name }
+            val byId = categories.associateBy { it.id }
+            allOps?.filter { matchesQuery(it, search.orEmpty(), byId, names) }
+        }
+    }
+    val ops = if (searching) found else if (filter is OpsFilter.Category && categories.isEmpty()) null else monthOps?.filter { op ->
         when (filter) {
             OpsFilter.All -> true
             is OpsFilter.Account -> op.expenseAccountId == filter.id || op.incomeAccountId == filter.id
@@ -119,6 +144,7 @@ fun OperationsScreen(
         is OpsFilter.Day -> "Операции за день"
     }
     val days = remember(ops, currencyOf) { byDay(ops.orEmpty(), currencyOf) }
+    val totals = remember(ops, currencyOf) { periodTotals(ops.orEmpty(), currencyOf) }
 
     fun go(m: YearMonth) {
         onMonth(m)
@@ -155,27 +181,51 @@ fun OperationsScreen(
             Column {
                 TopAppBar(
                     navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
-                    title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    title = {
+                        if (search != null && onSearch != null) SearchField(search) { onSearch(it) }
+                        else Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
                     actions = {
+                        if (onSearch != null && filter is OpsFilter.All) {
+                            if (search == null) {
+                                IconButton(onClick = { onSearch("") }) { Icon(Icons.Filled.Search, "Поиск") }
+                            } else {
+                                IconButton(onClick = { onSearch(null) }) { Icon(Icons.Filled.Close, "Закрыть поиск") }
+                            }
+                        }
                         onEdit?.let { IconButton(onClick = it) { Icon(Icons.Filled.Edit, "Изменить") } }
                         onTransfer?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "Перевод на другой счёт") } }
                         onAdd?.let { IconButton(onClick = it) { Icon(Icons.Filled.Add, "Добавить операцию") } }
                     },
                 )
-                if (filter !is OpsFilter.Day) MonthSwitcher(month, onChange = ::go)
+                if (filter !is OpsFilter.Day && !searching) MonthSwitcher(month, onChange = ::go)
+                if (totals.isNotEmpty()) {
+                    Surface(tonalElevation = 1.dp) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            for (t in totals) {
+                                Text(
+                                    totalLine(t, precisions[t.code] ?: 2),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
     ) { padding ->
         // До загрузки список не рисуем: пустой LazyColumn сбросил бы прокрутку при возврате из правки.
         if (ops == null) return@Scaffold
         if (days.isEmpty()) {
-            val hint = when (filter) {
-                OpsFilter.All -> "Перетащите счёт на статью на главном экране — трата появится здесь."
-                is OpsFilter.Account -> "Операций по счёту в этом месяце нет. «+» вверху — новый расход."
-                is OpsFilter.Category -> "Трат по статье в этом месяце нет. «+» вверху — новый расход."
-                is OpsFilter.Day -> "В этот день операций нет. Перетащите счёт на статью на главном экране."
+            val hint = when {
+                searching -> "Попробуйте другое слово, название статьи или сумму."
+                filter is OpsFilter.All -> "Перетащите счёт на статью на главном экране — трата появится здесь."
+                filter is OpsFilter.Account -> "Операций по счёту в этом месяце нет. «+» вверху — новый расход."
+                filter is OpsFilter.Category -> "Операций по статье в этом месяце нет. «+» вверху — новая операция."
+                else -> "В этот день операций нет. Перетащите счёт на статью на главном экране."
             }
-            EmptyState("Операций нет", hint, Modifier.padding(padding).fillMaxSize())
+            EmptyState(if (searching) "Ничего не найдено" else "Операций нет", hint, Modifier.padding(padding).fillMaxSize())
             return@Scaffold
         }
         LazyColumn(Modifier.padding(padding).fillMaxSize(), state = listState) {
@@ -325,14 +375,50 @@ private fun OperationRow(
 
 /** Окно правки операции [id]: грузит операцию и открывает окно ввода с её полями. */
 @Composable
-fun EditOperationScreen(dao: CashDao, id: Long, onDone: () -> Unit) {
+fun EditOperationScreen(
+    dao: CashDao,
+    id: Long,
+    onDone: () -> Unit,
+    onRepeat: (Operation) -> Unit,
+    onDeleted: (Operation, String) -> Unit,
+) {
     val loaded by produceState<Pair<Operation, Pair<Node, Node>>?>(null, id) {
         val op = dao.operation(id)
         val drop = op?.let { dropOf(it, dao.allCategories().first()) }
         if (op == null || drop == null) onDone() else value = op to drop
     }
     val (op, drop) = loaded ?: return
-    OperationScreen(dao, drop.first, drop.second, onDone, editing = op)
+    OperationScreen(dao, drop.first, drop.second, onDone, editing = op, onRepeat = { onRepeat(op) }, onDeleted = onDeleted)
+}
+
+/** «Повторить сегодня»: новый ввод по образцу операции [id] — те же направление, статья, суммы и комментарий. */
+@Composable
+fun RepeatOperationScreen(dao: CashDao, id: Long, onDone: () -> Unit, onSaved: (Long, String, Node, Node) -> Unit) {
+    val loaded by produceState<Pair<Operation, Pair<Node, Node>>?>(null, id) {
+        val op = dao.operation(id)
+        val drop = op?.let { dropOf(it, dao.allCategories().first()) }
+        if (op == null || drop == null) onDone() else value = op to drop
+    }
+    val (op, drop) = loaded ?: return
+    OperationScreen(dao, drop.first, drop.second, onDone, template = op, onSaved = { newId, text -> onSaved(newId, text, drop.first, drop.second) })
+}
+
+/** Строка поиска в верхней панели; на пустой открывается клавиатура (при возврате из правки - нет). */
+@Composable
+private fun SearchField(query: String, onChange: (String) -> Unit) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (query.isEmpty()) focus.requestFocus() }
+    TextField(
+        value = query,
+        onValueChange = onChange,
+        placeholder = { Text("Комментарий, статья, счёт, сумма") },
+        singleLine = true,
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+        ),
+        modifier = Modifier.fillMaxWidth().focusRequester(focus),
+    )
 }
 
 /** Переключатель месяца — одинаковый в лентах и графиках: полоса под верхней панелью, месяц по центру. */

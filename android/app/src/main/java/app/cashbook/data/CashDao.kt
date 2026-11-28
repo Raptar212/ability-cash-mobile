@@ -139,6 +139,19 @@ interface CashDao {
     /** Все операции, старые сверху — для экспорта CSV. */
     @Query("SELECT * FROM operations ORDER BY date, position, id") suspend fun allOperations(): List<Operation>
 
+    /** То же, что [allOperations], но новые сверху и с подпиской — для поиска по всем месяцам. */
+    @Query("SELECT * FROM operations ORDER BY date DESC, position DESC, id DESC")
+    fun allOperationsFlow(): Flow<List<Operation>>
+
+    /** До 5 последних разных непустых комментариев операций статьи [categoryId], новые первыми. */
+    @Query(
+        """
+        SELECT comment FROM operations WHERE categoryId = :categoryId AND TRIM(comment) != ''
+        GROUP BY comment ORDER BY MAX(date) DESC, MAX(id) DESC LIMIT 5
+        """,
+    )
+    suspend fun recentComments(categoryId: Long): List<String>
+
     /** Правка [old] на [new]: id и `createdAt` прежние; тот же день — та же позиция, другой — в конец дня. */
     @Transaction
     suspend fun saveEdit(old: Operation, new: Operation) = updateOperation(
