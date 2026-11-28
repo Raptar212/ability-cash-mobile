@@ -185,6 +185,68 @@ fun byDay(ops: List<Operation>, currencyOf: Map<Long, String>): List<Day> =
         Day(date, list, expenses)
     }
 
+/**
+ * Подходит ли [op] под поиск [query]: подстрока в комментарии, названии статьи (и её родителей) или
+ * счёта; строка-сумма («120», «12,5», «12.5») — ещё и равенство суммы расхода/дохода. Регистр —
+ * в Kotlin, а не `LIKE`: SQLite не различает регистр только у ASCII, кириллицу бы не нашёл.
+ */
+fun matchesQuery(op: Operation, query: String, categories: Map<Long, Category>, accountNames: Map<Long, String>): Boolean {
+    val q = query.trim().lowercase()
+    if (q.isEmpty()) return true
+    val amount = runCatching { Money.parse(q) }.getOrNull()
+    if (amount != null && (op.expenseAmount == amount || op.incomeAmount == amount)) return true
+    val texts = buildList {
+        add(op.comment)
+        var id = op.categoryId
+        var guard = categories.size + 1 // цикл в parentId — не зависаем
+        while (id != null && guard-- > 0) {
+            val c = categories[id] ?: break
+            add(c.name)
+            id = c.parentId
+        }
+        op.expenseAccountId?.let { accountNames[it] }?.let(::add)
+        op.incomeAccountId?.let { accountNames[it] }?.let(::add)
+    }
+    return texts.any { it.lowercase().contains(q) }
+}
+
+/** Доходы и расходы одной валюты за период; [net] — разница. */
+data class PeriodTotal(val code: String, val income: Long, val expense: Long) {
+    val net get() = income - expense
+}
+
+/** Итоги [ops] по валюте счёта (не `baseAmount`), по коду; переводы не считаются. */
+fun periodTotals(ops: List<Operation>, currencyOf: Map<Long, String>): List<PeriodTotal> {
+    val income = mutableMapOf<String, Long>()
+    val expense = mutableMapOf<String, Long>()
+    for (op in ops) when (op.type) {
+        OperationType.EXPENSE -> expense.merge(currencyOf[op.expenseAccountId] ?: "?", op.expenseAmount!!, Long::plus)
+        OperationType.INCOME -> income.merge(currencyOf[op.incomeAccountId] ?: "?", op.incomeAmount!!, Long::plus)
+        OperationType.TRANSFER -> Unit
+    }
+    return (income.keys + expense.keys).sorted().map { PeriodTotal(it, income[it] ?: 0, expense[it] ?: 0) }
+}
+
+/** Строка итога валюты: «Доходы +1 000 ₴ · Расходы −300 ₴ · Итог 700 ₴»; нулевая часть скрыта, при одной части «Итог» не нужен. */
+fun totalLine(t: PeriodTotal, precision: Int): String {
+    fun sum(v: Long) = "${fmt(v, precision)} ${symbol(t.code)}"
+    val parts = buildList {
+        if (t.income != 0L) add("Доходы +${sum(t.income)}")
+        if (t.expense != 0L) add("Расходы −${sum(t.expense)}")
+        if (t.income != 0L && t.expense != 0L) add("Итог ${sum(t.net)}")
+    }
+    return parts.joinToString(" · ")
+}
+
+/** Подсказки комментария: из [recent] те, что содержат введённое [typed] (без регистра) и не равны ему. */
+fun commentHints(recent: List<String>, typed: String): List<String> {
+    val t = typed.trim()
+    return recent.filter { it != t && it.contains(t, ignoreCase = true) }
+}
+
+/** Операция трогает один из счетов [ids] (например, архивных) — по ней нельзя вводить новую. */
+fun usesAccount(op: Operation, ids: Set<Long>) = listOfNotNull(op.expenseAccountId, op.incomeAccountId).any { it in ids }
+
 /** Статьи в списках выбора — по алфавиту (русская сортировка: «ё» рядом с «е», регистр не главный). */
 val ByName: Comparator<Category> = Collator.getInstance(Locale("ru")).let { collator -> compareBy(collator) { it.name } }
 

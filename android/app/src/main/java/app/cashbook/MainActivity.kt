@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.SnackbarDuration
@@ -35,7 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import app.cashbook.data.AppDatabase
+import app.cashbook.data.AutoBackup
 import app.cashbook.data.Backup
+import app.cashbook.data.Operation
 import app.cashbook.reminder.Reminder
 import app.cashbook.ui.AccountEditScreen
 import app.cashbook.ui.AppTheme
@@ -50,6 +53,8 @@ import app.cashbook.ui.CoinKeeperCsv
 import app.cashbook.ui.EditOperationScreen
 import app.cashbook.ui.HomeScreen
 import app.cashbook.ui.OperationScreen
+import app.cashbook.ui.RepeatOperationScreen
+import app.cashbook.ui.usesAccount
 import app.cashbook.ui.OperationsScreen
 import app.cashbook.ui.OpsFilter
 import app.cashbook.ui.Node
@@ -77,12 +82,23 @@ import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
 
+/** Что вернёт «Отменить» в снекбаре: убрать только что добавленную операцию или вернуть удалённую. */
+private sealed interface Undo {
+    val text: String
+    class Added(val id: Long, override val text: String) : Undo
+    class Deleted(val op: Operation, override val text: String) : Undo
+}
+
 class MainActivity : ComponentActivity() {
     /** Открыт главный экран без диалогов — только отсюда обновление ставится молча (несохранённое не пропадёт). */
     @Volatile private var onHome = false
 
+    /** Растёт при возврате в приложение: подпись «Автокопия» перечитывается после фоновой копии. */
+    private val resumes = mutableStateOf(0)
+
     override fun onResume() {
         super.onResume()
+        resumes.value++
         SelfUpdate.onScreen = true
         SelfUpdate.ownActivity = false // вернулись из своего выбора файла
         InstallStatusReceiver.showConfirm(this) // окно «Обновить?», пришедшее, пока были в фоне
@@ -91,6 +107,11 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         SelfUpdate.onScreen = false
         super.onPause()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        AutoBackup.runIfDue(this) // не чаще раза в сутки, в фоне
     }
 
     override fun onUserLeaveHint() {
@@ -126,6 +147,9 @@ class MainActivity : ComponentActivity() {
                 // Месяц и прокрутка здесь, а не в ленте: возврат из правки — на то же место.
                 var listMonth by rememberSaveable { mutableStateOf<String?>(null) }
                 var editOp by rememberSaveable { mutableStateOf<Long?>(null) }
+                var repeatOp by rememberSaveable { mutableStateOf<Long?>(null) } // «Повторить сегодня»: образец
+                // Поиск в общей ленте: null — закрыт, "" — открыт и пуст. Здесь, чтобы пережить правку операции.
+                var search by rememberSaveable { mutableStateOf<String?>(null) }
                 // Лента одного счёта / одной статьи расхода (тап по кружку); оба null — все операции.
                 var listAccount by rememberSaveable { mutableStateOf<Long?>(null) }
                 var listCategory by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -156,19 +180,47 @@ class MainActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
                 // «Расход 120 ₴ · Отменить» после записи новой операции: id и текст.
                 val snackbar = remember { SnackbarHostState() }
-                var undo by remember { mutableStateOf<Pair<Long, String>?>(null) }
+                var undo by remember { mutableStateOf<Undo?>(null) }
+                var autoTick by remember { mutableStateOf(0) } // подпись «Автокопия» перечитать
+                var autoDialog by remember { mutableStateOf(false) }
                 var pulse by remember { mutableStateOf<Set<Node>>(emptySet()) } // кружки только что записанной операции
                 LaunchedEffect(undo, dao) { // dao — новый после восстановления копии
-                    val (id, text) = undo ?: return@LaunchedEffect
-                    val result = snackbar.showSnackbar(text, actionLabel = "Отменить", duration = SnackbarDuration.Short)
+                    val action = undo ?: return@LaunchedEffect
+                    val result = snackbar.showSnackbar(action.text, actionLabel = "Отменить", duration = SnackbarDuration.Short)
                     if (result == SnackbarResult.ActionPerformed) {
-                        pulse = emptySet()
-                        dao.operation(id)?.let { dao.deleteOperation(it) }
+                        when (action) {
+                            is Undo.Added -> {
+                                pulse = emptySet()
+                                dao.operation(action.id)?.let { dao.deleteOperation(it) }
+                            }
+                            // Тот же id, позиция и createdAt — операция встаёт на прежнее место ленты.
+                            is Undo.Deleted -> try {
+                                dao.insertOperation(action.op)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                Toast.makeText(this@MainActivity, "Не удалось вернуть операцию: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
                     }
                     undo = null
                 }
 
                 fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+
+                /** Новая операция записана: «Отменить», пульс кружков, лента наверх. */
+                fun saved(from: Node, to: Node, id: Long, text: String) {
+                    undo = Undo.Added(id, text)
+                    pulse = setOf(from, to)
+                    listState.requestScrollToItem(0) // новая операция — наверху ленты, иначе кажется, что не добавилась
+                }
+
+                /** Копия в папку автокопии прямо сейчас; результат — тостом, подпись в «Данных» обновляется. */
+                fun autoNow() = scope.launch {
+                    val error = withContext(Dispatchers.IO) { AutoBackup.run(this@MainActivity, force = true) }
+                    autoTick++
+                    toast(error?.let { "Автокопия: $it" } ?: "Копия базы сохранена")
+                }
 
                 /** Работа с файлами — вне главного потока; ошибка — сообщение, не крэш. */
                 fun io(block: suspend () -> String?) = scope.launch {
@@ -201,6 +253,19 @@ class MainActivity : ComponentActivity() {
                         "CSV сохранён: операций ${ops.size}"
                     }
                 }
+                val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                    if (uri != null) {
+                        try {
+                            contentResolver.takePersistableUriPermission(
+                                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                            )
+                            AutoBackup.enable(this, uri)
+                            autoNow()
+                        } catch (e: SecurityException) {
+                            toast("Папка не дала постоянного доступа: ${e.message}")
+                        }
+                    }
+                }
                 val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                     if (uri != null) io {
                         try {
@@ -222,7 +287,7 @@ class MainActivity : ComponentActivity() {
                 val month = listMonth
                 // Экран «Обновления» несохранённого ввода не держит — с него «Обновить» ставит сразу.
                 val home = !restoring && quickAdd == null && transferFrom == null && categoriesKind == null && !archive && !widgetSettings &&
-                    accountId == null && operation == null && opId == null && !charts && month == null
+                    accountId == null && operation == null && opId == null && repeatOp == null && !charts && month == null
                 // Настройки и «Порядок счетов» тоже без несохранённого ввода — флаги settings/accountOrder
                 // сюда не входят: иначе «Обновить» на экране «Обновления» (открыт из настроек) не ставил бы сразу.
                 SideEffect { onHome = home && !confirmImport && updateOutcome == null }
@@ -316,15 +381,32 @@ class MainActivity : ComponentActivity() {
                     operation != null -> {
                         BackHandler { drop = null }
                         val (from, to) = decodeDrop(operation)
-                        OperationScreen(dao, from, to, onDone = { drop = null }, onSaved = { id, text ->
-                            undo = id to text
-                            pulse = setOf(from, to)
-                            listState.requestScrollToItem(0) // новая операция — наверху ленты, иначе кажется, что не добавилась
-                        })
+                        OperationScreen(dao, from, to, onDone = { drop = null }, onSaved = { id, text -> saved(from, to, id, text) })
+                    }
+                    repeatOp != null -> {
+                        BackHandler { repeatOp = null }
+                        RepeatOperationScreen(dao, repeatOp!!, onDone = { repeatOp = null }, onSaved = { id, text, from, to -> saved(from, to, id, text) })
                     }
                     opId != null -> {
                         BackHandler { editOp = null }
-                        EditOperationScreen(dao, opId, onDone = { editOp = null })
+                        EditOperationScreen(
+                            dao,
+                            opId,
+                            onDone = { editOp = null },
+                            onRepeat = { op ->
+                                scope.launch {
+                                    // Новый ввод — только по активным счетам.
+                                    val archived = dao.archivedAccounts().first().map { it.id }.toSet()
+                                    if (usesAccount(op, archived)) {
+                                        toast("Счёт операции в архиве — повторить нельзя")
+                                    } else {
+                                        editOp = null
+                                        repeatOp = op.id
+                                    }
+                                }
+                            },
+                            onDeleted = { op, text -> undo = Undo.Deleted(op, "Удалено: $text") },
+                        )
                     }
                     charts -> {
                         BackHandler { charts = false }
@@ -332,12 +414,13 @@ class MainActivity : ComponentActivity() {
                     }
                     month != null -> {
                         fun close() {
+                            search = null
                             listMonth = null
                             listAccount = null
                             listCategory = null
                             listDay = null
                         }
-                        BackHandler { close() }
+                        BackHandler { if (search != null) search = null else close() }
                         val acc = listAccount
                         val cat = listCategory
                         val day = listDay
@@ -357,17 +440,26 @@ class MainActivity : ComponentActivity() {
                             // «+» на счёте — выбор статьи расхода, как с виджета.
                             onAdd = when {
                                 acc != null -> { { quickAdd = acc } }
-                                // На статье — расход со счёта последнего расхода (нет — первый счёт).
+                                // На статье — операция со счётом последней такой (нет — первый счёт); доход — на счёт.
                                 cat != null -> { {
                                     scope.launch {
-                                        val from = dao.lastAccount(true) ?: dao.balances().first().firstOrNull()?.accountId
-                                        if (from != null) drop = encodeDrop(Node(NodeKind.ACCOUNT, from), Node(NodeKind.EXPENSE, cat))
+                                        val income = dao.allCategories().first().firstOrNull { it.id == cat }?.kind == CategoryKind.INCOME
+                                        val account = dao.lastAccount(!income) ?: dao.balances().first().firstOrNull()?.accountId
+                                        if (account != null) {
+                                            drop = if (income) {
+                                                encodeDrop(Node(NodeKind.INCOME, cat), Node(NodeKind.ACCOUNT, account))
+                                            } else {
+                                                encodeDrop(Node(NodeKind.ACCOUNT, account), Node(NodeKind.EXPENSE, cat))
+                                            }
+                                        }
                                     }
                                 } }
                                 else -> null
                             },
                             onEdit = acc?.let { { editing = it } },
                             onTransfer = acc?.let { { transferFrom = it } },
+                            search = search,
+                            onSearch = { search = it },
                         )
                     }
                     settings -> {
@@ -406,6 +498,9 @@ class MainActivity : ComponentActivity() {
                                         SelfUpdate.ownActivity = true
                                         importer.launch(arrayOf("*/*"))
                                     },
+                                    SettingsItem("Автокопия", (autoTick + resumes.value).let { AutoBackup.status(this) }) {
+                                        autoDialog = true // и первый выбор папки — с предупреждением
+                                    },
                                     if (CoinKeeperCsv.ENABLED) SettingsItem("Экспорт CSV (CoinKeeper)") {
                                         SelfUpdate.ownActivity = true
                                         csvExporter.launch("coinkeeper-${LocalDate.now()}.csv")
@@ -438,7 +533,7 @@ class MainActivity : ComponentActivity() {
                             listMonth = YearMonth.now().toString()
                             listState.requestScrollToItem(0)
                         },
-                        onExpenseCategory = {
+                        onCategoryFeed = {
                             listCategory = it
                             listMonth = YearMonth.now().toString()
                             listState.requestScrollToItem(0)
@@ -514,6 +609,49 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                if (autoDialog) {
+                    val enabled = AutoBackup.folder(this) != null
+                    AlertDialog(
+                        onDismissRequest = { autoDialog = false },
+                        title = { Text("Автокопия") },
+                        text = {
+                            Text(
+                                "Раз в сутки при выходе из приложения копия базы пишется в выбранную папку; хранятся 7 последних. " +
+                                    "Копия не зашифрована: выбирайте личную папку — в общую папку или облако данные уйдут вместе с ней.",
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                autoDialog = false
+                                if (enabled) {
+                                    autoNow()
+                                } else {
+                                    SelfUpdate.ownActivity = true
+                                    folderPicker.launch(null)
+                                }
+                            }) { Text(if (enabled) "Сделать сейчас" else "Выбрать папку") }
+                        },
+                        dismissButton = {
+                            if (enabled) {
+                                Row {
+                                    TextButton(onClick = {
+                                        autoDialog = false
+                                        SelfUpdate.ownActivity = true
+                                        folderPicker.launch(null)
+                                    }) { Text("Сменить папку") }
+                                    TextButton(onClick = {
+                                        autoDialog = false
+                                        AutoBackup.disable(this@MainActivity)
+                                        autoTick++
+                                    }) { Text("Выключить") }
+                                }
+                            } else {
+                                TextButton(onClick = { autoDialog = false }) { Text("Отмена") }
+                            }
+                        },
+                    )
+                }
+
                 if (confirmImport) {
                     AlertDialog(
                         onDismissRequest = {
@@ -532,6 +670,7 @@ class MainActivity : ComponentActivity() {
                                 confirmImport = false
                                 editing = null
                                 drop = null
+                                undo = null // «Отменить» не должно вставлять в чужую, восстановленную базу
                                 restoring = true
                             }) { Text("Заменить") }
                         },
